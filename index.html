@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NilGai Guard Live</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌾</text></svg>">
+<script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
+<style>
+:root{
+  --leaf:#1F4A2E; --leaf-2:#2C6A42; --soil:#6B4F36; --paper:#F6F8F3; --ink:#18241C; --muted:#5E6E63;
+  --line:#D6DED6; --card:#FFFFFF; --soft:#F3F6F1;
+  --sev-high:#D62839; --sev-med:#F07D1A; --sev-low:#E3B505; --sev-none:#3E9B5F; --info:#5E6E63;
+  --profile:#E8890C; --gait:#D62839; --human:#2F78C4; --nilgai:#E08A00;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--paper);color:var(--ink);font-family:"Segoe UI","Nirmala UI",Roboto,Arial,sans-serif;font-size:15px;line-height:1.4}
+button{font:inherit;cursor:pointer}
+button:focus-visible,input:focus-visible{outline:3px solid #6AA9FF;outline-offset:2px}
+
+header{background:var(--leaf);color:#fff;padding:14px 26px;display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:12px}
+.brand h1{font-size:21px;font-weight:700}
+.brand p{font-size:13px;opacity:.82}
+.hdr-right{margin-left:auto;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.chip{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.24);border-radius:999px;padding:6px 12px;font-size:13px;display:flex;align-items:center;gap:7px;color:#fff}
+.dot{width:9px;height:9px;border-radius:50%;background:#aaa}
+.dot.ok{background:#7CE3A1;box-shadow:0 0 0 3px rgba(124,227,161,.25)}
+.dot.warn{background:#F5C451}.dot.bad{background:#FF7B7B}
+.hbtn{background:#fff;color:var(--leaf);border:0;border-radius:999px;padding:7px 13px;font-size:13px;font-weight:700}
+.hbtn.ghost{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.4)}
+.hbtn.on{background:#F5C451;color:#3A2B00}
+
+.alert{margin:18px 26px 0;border-radius:18px;padding:16px 22px;display:flex;align-items:center;gap:18px;color:#fff;background:var(--sev-none);transition:background .4s}
+.alert.ALERT{background:var(--sev-high)} .alert.WARNING,.alert.CHECK{background:var(--sev-med)}
+.alert.WAIT{background:#7C8B81} .alert.LOW{background:#8A9A3A}
+.alert .big{font-size:22px;font-weight:700}
+.alert .sub{font-size:14.5px;opacity:.95}
+.alert .actions{margin-left:auto;display:flex;gap:10px;flex-wrap:wrap}
+.btn{border-radius:12px;padding:10px 15px;font-weight:700;border:2px solid #fff;background:#fff;color:var(--ink)}
+.btn.ghost{background:transparent;color:#fff}
+.pulse{width:16px;height:16px;border-radius:50%;background:#fff;flex:none}
+.alert.ALERT .pulse{animation:pulse 1.3s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(255,255,255,.7)}100%{box-shadow:0 0 0 16px rgba(255,255,255,0)}}
+
+main{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(320px,1fr);gap:18px;padding:18px 26px 0}
+.col{display:flex;flex-direction:column;gap:18px;min-width:0}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px 18px;min-width:0}
+.panel h2{font-size:17px;font-weight:700;margin-bottom:3px;display:flex;align-items:center;gap:8px}
+.panel .hint{font-size:13px;color:var(--muted);margin-bottom:12px}
+.tag{font-size:11px;font-weight:800;color:#fff;border-radius:7px;padding:3px 8px;white-space:nowrap;display:inline-block}
+
+.lamps{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
+.lamp{flex:1;min-width:140px;border-radius:12px;padding:10px 12px;background:var(--soft);display:flex;align-items:center;gap:10px}
+.lamp i{width:14px;height:14px;border-radius:50%;background:var(--sev-none);flex:none}
+.lamp.blk i{background:var(--sev-high);box-shadow:0 0 0 5px rgba(214,40,57,.18)}
+.lamp b{display:block;font-size:13px}.lamp span{font-size:12px;color:var(--muted)}
+
+canvas{width:100%;display:block}
+.scope-wrap{background:#fff;border:1px solid var(--line);border-radius:12px;padding:6px}
+
+.sig{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:14px;align-items:start}
+.feat{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.feat div{background:var(--soft);border-radius:10px;padding:7px 10px}
+.feat b{display:block;font-size:17px}.feat span{font-size:11.5px;color:var(--muted)}
+.contrib{margin-top:10px;display:flex;flex-direction:column;gap:6px}
+.crow{display:grid;grid-template-columns:118px 1fr 46px;gap:8px;align-items:center;font-size:12.5px}
+.cbar{height:12px;background:#EEF1EC;border-radius:6px;position:relative}
+.cbar::after{content:"";position:absolute;left:50%;top:-3px;bottom:-3px;width:1px;background:#9AA59D}
+.cbar span{position:absolute;top:0;bottom:0;border-radius:6px}
+.gauge{margin-top:12px;height:28px;border-radius:10px;position:relative;background:linear-gradient(90deg,var(--human) 0%,#9db8d6 30%,#e8e2c8 50%,#f0c27a 70%,var(--nilgai) 100%)}
+.gauge i{position:absolute;top:-5px;bottom:-5px;width:4px;background:var(--ink);border-radius:2px;transition:left .5s}
+.gauge-l{display:flex;justify-content:space-between;font-size:11.5px;color:var(--muted);margin-top:4px}
+.verdict{margin-top:10px;font-size:15px}
+
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.stat{background:var(--soft);border-radius:12px;padding:10px 12px}
+.stat b{display:block;font-size:23px;line-height:1.1}
+.stat span{font-size:12.5px;color:var(--muted)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:13.5px}
+.kv span{color:var(--muted)} .kv b{text-align:right;font-weight:600}
+.ctrls{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.sbtn{border:1px solid var(--line);background:#fff;border-radius:11px;padding:10px 12px;font-size:13.5px;font-weight:700;color:var(--ink)}
+.sbtn.primary{background:var(--leaf);border-color:var(--leaf);color:#fff}
+.sbtn.danger{background:var(--sev-high);border-color:var(--sev-high);color:#fff}
+.note{font-size:12.5px;color:var(--muted);margin-top:8px}
+.warnbox{margin-top:10px;background:#FFF4E5;border:1px solid #F5C99A;color:#7A4A12;border-radius:10px;padding:8px 10px;font-size:12.5px;display:none}
+
+.full{padding:18px 26px 26px}
+.tablewrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13.5px;min-width:900px}
+th{background:var(--leaf);color:#fff;text-align:left;padding:9px 10px;font-weight:600;white-space:nowrap}
+th:first-child{border-radius:10px 0 0 0}th:last-child{border-radius:0 10px 0 0}
+td{padding:8px 10px;border-bottom:1px solid #EEF1EC;white-space:nowrap}
+tr:nth-child(even) td{background:#FAFBF9}
+td.inf{white-space:normal;min-width:260px}
+.fb button{border:1px solid var(--line);background:#fff;border-radius:8px;padding:4px 8px;font-size:12px;font-weight:700;margin-right:4px}
+.fb button.sel{background:var(--leaf);color:#fff;border-color:var(--leaf)}
+.empty{color:var(--muted);text-align:center;padding:18px}
+
+dialog{border:0;border-radius:18px;padding:22px;max-width:560px;width:92vw;color:var(--ink)}
+dialog::backdrop{background:rgba(10,20,14,.45)}
+dialog h3{margin-bottom:10px}
+dialog label{display:block;font-size:13px;color:var(--muted);margin-top:10px}
+dialog input{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:9px;font:inherit;margin-top:4px}
+dialog .row{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+.toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 16px;border-radius:12px;font-size:13.5px;opacity:0;transition:opacity .3s;pointer-events:none;z-index:9}
+.toast.show{opacity:.94}
+footer{padding:0 26px 22px;font-size:12px;color:var(--muted)}
+@media (max-width:1000px){main{grid-template-columns:1fr;padding:14px 14px 0}.alert{margin:14px 14px 0;flex-wrap:wrap}.alert .actions{margin-left:0}header{padding:12px 14px}.full{padding:14px}.sig{grid-template-columns:1fr}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <svg width="40" height="40" viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="19" fill="#fff"/><path d="M8 28c4-10 10-15 24-17-3 9-9 16-24 17z" fill="#2C6A42"/><path d="M10 27 L26 14" stroke="#fff" stroke-width="1.6"/></svg>
+    <div><h1>NilGai Guard Live</h1><p>IoT Lab, CSE Department, IIT (BHU) · Boundary AB prototype</p></div>
+  </div>
+  <div class="hdr-right">
+    <span class="chip" title="Connection to the cloud broker"><span class="dot" id="dotNet"></span><span id="netTxt">Connecting…</span></span>
+    <span class="chip" title="Master node A (ESP8266)"><span class="dot" id="dotDev"></span><span id="devTxt">Device —</span></span>
+    <span class="chip" id="clock">--:--:--</span>
+    <button class="hbtn ghost" id="demoBtn" title="Simulate crossings without hardware">Demo mode</button>
+    <button class="hbtn" id="setBtn">Settings</button>
+  </div>
+</header>
+
+<section class="alert WAIT" id="alert" aria-live="polite">
+  <div class="pulse"></div>
+  <div><div class="big" id="aBig">Waiting for the field device…</div><div class="sub" id="aSub">Power the master node and connect it to the hotspot.</div></div>
+  <div class="actions">
+    <button class="btn" data-cmd="horn">Sound horn</button>
+    <button class="btn ghost" data-cmd="stop">Stop alarm</button>
+  </div>
+</section>
+
+<main>
+  <div class="col">
+    <section class="panel">
+      <h2>Boundary AB — live</h2>
+      <p class="hint">Outer <b style="color:var(--profile)">profile beam</b> (body height) and inner <b style="color:var(--gait)">gait beam</b> (leg height) between master node A and transmitter node B.</p>
+      <svg id="bnd" viewBox="0 0 640 300" width="100%" role="img" aria-label="Boundary AB with two beams"></svg>
+      <div class="lamps">
+        <div class="lamp" id="lampP"><i></i><div><b>Profile beam (outer)</b><span id="lampPt">CLEAR</span></div></div>
+        <div class="lamp" id="lampG"><i></i><div><b>Gait beam (inner)</b><span id="lampGt">CLEAR</span></div></div>
+        <div class="lamp" id="lampH"><i style="background:#9AA59D"></i><div><b>Horn</b><span id="lampHt">OFF</span></div></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Live beam scope <span class="tag" style="background:var(--info)">last 20 s</span></h2>
+      <p class="hint">High = beam clear, low = beam blocked. Same signal the classifier sees.</p>
+      <div class="scope-wrap"><canvas id="scope" height="170"></canvas></div>
+    </section>
+
+    <section class="panel">
+      <h2>Last crossing — how it was decided</h2>
+      <p class="hint" id="sigHint">No crossing yet. Walk through the beams (or switch on Demo mode).</p>
+      <div class="sig">
+        <div>
+          <svg id="sig" viewBox="0 0 520 210" width="100%" role="img" aria-label="Beam signature of the last crossing"></svg>
+          <div class="gauge"><i id="gNeedle" style="left:50%"></i></div>
+          <div class="gauge-l"><span>Human</span><span>Unknown</span><span>NilGai</span></div>
+          <p class="verdict" id="verdict"></p>
+        </div>
+        <div>
+          <div class="feat" id="feat"></div>
+          <div class="contrib" id="contrib"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="col">
+    <section class="panel">
+      <h2>Controls</h2>
+      <div class="ctrls">
+        <button class="sbtn primary" id="armBtn" data-cmd="disarm">Disarm</button>
+        <button class="sbtn" data-cmd="horn">Horn test</button>
+        <button class="sbtn danger" data-cmd="stop">Stop alarm</button>
+        <button class="sbtn" data-cmd="led">LED test</button>
+        <button class="sbtn" data-cmd="calib" title="Then swipe a hand quickly through the gait beam">Calibrate hold</button>
+        <button class="sbtn" data-cmd="reset_learn">Reset learning</button>
+      </div>
+      <p class="note">Horn rule: NilGai <b>entering</b> → horn + strobe · person → no horn · NilGai exiting → alarm stops.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Today</h2>
+      <div class="grid2">
+        <div class="stat"><b id="cN" style="color:var(--sev-high)">0</b><span>NilGai crossings</span></div>
+        <div class="stat"><b id="cH" style="color:var(--human)">0</b><span>People (no alarm)</span></div>
+        <div class="stat"><b id="cE">0</b><span>Entering</span></div>
+        <div class="stat"><b id="cX" style="color:var(--sev-none)">0</b><span>Exiting / chased out</span></div>
+        <div class="stat"><b id="cU" style="color:var(--sev-med)">0</b><span>Uncertain</span></div>
+        <div class="stat"><b id="cS">0</b><span>Small animals</span></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Self-calibrating thresholds</h2>
+      <p class="hint">Learned from confident crossings and your ✓ feedback in the log.</p>
+      <div class="kv" id="learn"></div>
+      <div class="warnbox" id="latchWarn">The shortest gait pulse is long. The IR receiver may be holding its alarm output — set its response time to the minimum, then press <b>Calibrate hold</b> and swipe a hand quickly through the gait beam.</div>
+    </section>
+
+    <section class="panel">
+      <h2>Master node A</h2>
+      <div class="kv" id="dev"></div>
+    </section>
+  </div>
+</main>
+
+<section class="full">
+  <div class="panel">
+    <h2>Crossing log &amp; inference</h2>
+    <p class="hint">Tick the correct class when the system is unsure or wrong — the device adapts its thresholds.</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>#</th><th>Time</th><th>Direction</th><th>Detected as</th><th>P(NilGai)</th><th>T<sub>P</sub> (s)</th><th>N<sub>G</sub></th><th>K</th><th>Δt (ms)</th><th>Inference → warning status</th><th>Correct?</th></tr></thead>
+        <tbody id="log"><tr><td colspan="11" class="empty">No crossings yet.</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+<footer>NilGai Guard PT6 · AIoT boundary intrusion detection · data path: ESP8266 → MQTT broker → this page. Local fallback page: http://nilgaiguard.local or the device IP.</footer>
+
+<dialog id="dlg">
+  <h3>Connection settings</h3>
+  <p class="note">These must match <code>MQTT_HOST</code> and <code>TOPIC_ROOT</code> in the ESP8266 sketch. Saved in this browser only.</p>
+  <label>Broker WebSocket URL<input id="inUrl"></label>
+  <label>Topic root<input id="inRoot"></label>
+  <div class="row"><button class="sbtn" id="dlgCancel">Cancel</button><button class="sbtn primary" id="dlgSave">Save &amp; reconnect</button></div>
+</dialog>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ===================== settings ===================== */
+const DEF={url:'wss://broker.hivemq.com:8884/mqtt',root:'nilgaiguard/nuthan09/pt6'};
+function loadCfg(){try{return Object.assign({},DEF,JSON.parse(localStorage.getItem('ng-cfg')||'{}'))}catch(e){return {...DEF}}}
+function saveCfg(c){try{localStorage.setItem('ng-cfg',JSON.stringify(c))}catch(e){}}
+let CFG=loadCfg();
+
+const SEV={ALERT:'#D62839',WARNING:'#F07D1A',CHECK:'#F07D1A',SAFE:'#3E9B5F',CLEARED:'#3E9B5F',LOW:'#8A9A3A',IGNORED:'#5E6E63',INFO:'#5E6E63'};
+const CLSC={HUMAN:'#2F78C4',NILGAI:'#E08A00',UNKNOWN:'#F07D1A',SMALL_ANIMAL:'#8A9A3A',OBSTRUCTION:'#D62839',NOISE:'#5E6E63'};
+const CLSN={HUMAN:'Human',NILGAI:'NilGai',UNKNOWN:'Uncertain',SMALL_ANIMAL:'Small animal',OBSTRUCTION:'Beam obstructed',NOISE:'Noise'};
+const $=id=>document.getElementById(id);
+
+/* ===================== app state ===================== */
+const S={net:'connecting',devOnline:false,lastState:0,state:null,live:{p:0,g:0,horn:0},samples:[],events:[],labels:{},demo:false,
+         counts:{nilgai:0,human:0,unknown:0,small:0,enter:0,exit:0},bannerUntil:0};
+let client=null;
+
+/* ===================== MQTT ===================== */
+function connect(){
+  if(client){try{client.end(true)}catch(e){} client=null}
+  if(S.demo)return;
+  if(typeof mqtt==='undefined'){setNet('bad','MQTT library blocked');return}
+  setNet('warn','Connecting…');
+  client=mqtt.connect(CFG.url,{clientId:'ng-web-'+Math.random().toString(16).slice(2,10),keepalive:30,reconnectPeriod:3000,connectTimeout:8000,clean:true});
+  client.on('connect',()=>{setNet('ok','Cloud connected');client.subscribe(CFG.root+'/#')});
+  client.on('reconnect',()=>setNet('warn','Reconnecting…'));
+  client.on('offline',()=>setNet('bad','Offline'));
+  client.on('error',e=>setNet('bad','Error: '+(e&&e.message||'')));
+  client.on('message',(t,m)=>{ if(S.demo)return; onMsg(t.slice(CFG.root.length+1),m.toString()) });
+}
+function setNet(k,txt){$('dotNet').className='dot '+k;$('netTxt').textContent=txt}
+function onMsg(sub,txt){
+  if(sub==='status'){S.devOnline=(txt==='online');if(!S.devOnline)S.state=null;renderDev();return}
+  let j;try{j=JSON.parse(txt)}catch(e){return}
+  if(sub==='state'){S.state=j;S.lastState=Date.now();S.devOnline=true;setLive({p:j.p,g:j.g,horn:j.horn});renderDev();renderLearn(j.learn,j.minPulse);renderCounts(j.cnt)}
+  else if(sub==='live'){setLive(j)}
+  else if(sub==='event'){onEvent(j)}
+  else if(sub==='ack'){toast(j.result||'done')}
+}
+function send(cmd){
+  if(S.demo){demoCmd(cmd);return}
+  if(!client||!client.connected){toast('Not connected to the device');return}
+  client.publish(CFG.root+'/cmd',cmd);toast('Sent: '+cmd);
+}
+
+/* ===================== live beams ===================== */
+function setLive(l){
+  const prev=S.live; S.live={p:+l.p||0,g:+l.g||0,horn:+l.horn||0};
+  if(prev.p!==S.live.p||prev.g!==S.live.g||!S.samples.length)S.samples.push({t:Date.now(),p:S.live.p,g:S.live.g});
+  renderLamps();drawBoundary();
+}
+function renderLamps(){
+  $('lampP').classList.toggle('blk',!!S.live.p);$('lampPt').textContent=S.live.p?'BLOCKED':'CLEAR';
+  $('lampG').classList.toggle('blk',!!S.live.g);$('lampGt').textContent=S.live.g?'BLOCKED':'CLEAR';
+  $('lampH').querySelector('i').style.background=S.live.horn?'#D62839':'#9AA59D';$('lampHt').textContent=S.live.horn?'SOUNDING':'OFF';
+}
+
+/* ===================== boundary drawing ===================== */
+const NS='http://www.w3.org/2000/svg';
+function el(tag,a,p,txt){const e=document.createElementNS(NS,tag);for(const k in a)e.setAttribute(k,a[k]);if(txt!=null)e.textContent=txt;if(p)p.appendChild(e);return e}
+let anim=null;
+function drawBoundary(){
+  const s=$('bnd');s.innerHTML='';
+  el('rect',{x:0,y:0,width:640,height:118,fill:'#F4EBDD'},s);
+  el('rect',{x:0,y:118,width:640,height:182,fill:'#E5F4EA'},s);
+  for(let i=0;i<9;i++)el('text',{x:40+i*70,y:250+((i%2)*22),'font-size':22,fill:'#9CCBA9'},s,'❦');
+  el('text',{x:130,y:26,'font-size':14,'font-weight':700,fill:'#9A7B4F'},s,'OUTSIDE');
+  el('text',{x:16,y:290,'font-size':14,'font-weight':700,fill:'#2E7D4F'},s,'FIELD (crop)');
+  const yP=110,yG=140,blkP=S.live.p,blkG=S.live.g;
+  if(blkP)el('line',{x1:90,y1:yP,x2:550,y2:yP,stroke:'#D62839','stroke-width':14,'stroke-opacity':.22,'stroke-linecap':'round'},s);
+  if(blkG)el('line',{x1:90,y1:yG,x2:550,y2:yG,stroke:'#D62839','stroke-width':14,'stroke-opacity':.22,'stroke-linecap':'round'},s);
+  el('line',{x1:90,y1:yP,x2:550,y2:yP,stroke:blkP?'#D62839':'#E8890C','stroke-width':4},s);
+  el('line',{x1:90,y1:yG,x2:550,y2:yG,stroke:'#D62839','stroke-width':4,'stroke-dasharray':blkG?'':'12 8','stroke-opacity':blkG?1:.85},s);
+  el('text',{x:320,y:yP-8,'text-anchor':'middle','font-size':12,'font-weight':700,fill:'#B76A00'},s,'profile beam · outer');
+  el('text',{x:320,y:yG+20,'text-anchor':'middle','font-size':12,'font-weight':700,fill:'#B21F2E'},s,'gait beam · inner');
+  // posts
+  const post=(x,lab,sub,master)=>{
+    el('rect',{x:x-22,y:88,width:44,height:74,rx:10,fill:master?'#1F4A2E':'#fff',stroke:'#1F4A2E','stroke-width':3},s);
+    el('text',{x,y:132,'text-anchor':'middle','font-size':20,'font-weight':800,fill:master?'#fff':'#1F4A2E'},s,lab);
+    el('text',{x,y:182,'text-anchor':'middle','font-size':11.5,'font-weight':700,fill:'#3C4A40'},s,sub);
+    if(master&&S.live.horn){[26,40,54].forEach(r=>el('circle',{cx:x,cy:70,r,fill:'none',stroke:'#D62839','stroke-width':3,'stroke-opacity':.6},s))}
+    if(master)el('text',{x,y:76,'text-anchor':'middle','font-size':20},s,'📢');
+  };
+  post(68,'A','Master · ESP8266',true); post(572,'B','Transmitters',false);
+  if(anim){const k=Math.min(1,(performance.now()-anim.t0)/1800);const y=anim.enter?20+k*230:250-k*230;
+    const g=el('g',{transform:`translate(${anim.x},${y})`},s);
+    el('circle',{r:26,fill:anim.col,'fill-opacity':.22},g);
+    el('text',{y:10,'text-anchor':'middle','font-size':30},g,anim.icon);
+    el('text',{x:34,y:6,'font-size':12,'font-weight':800,fill:anim.col},g,anim.label);
+    if(k>=1&&performance.now()-anim.t0>3200)anim=null;
+  }
+}
+
+/* ===================== scope ===================== */
+function drawScope(){
+  const c=$('scope'),dpr=window.devicePixelRatio||1,w=c.clientWidth,h=170;
+  if(c.width!==w*dpr){c.width=w*dpr;c.height=h*dpr}
+  const x=c.getContext('2d');x.setTransform(dpr,0,0,dpr,0,0);x.clearRect(0,0,w,h);
+  const now=Date.now(),span=20000,L=74,R=w-10;
+  const X=t=>L+(R-L)*(1-(now-t)/span);
+  x.font='12px Segoe UI, Arial';x.fillStyle='#5E6E63';
+  x.strokeStyle='#EEF1EC';x.lineWidth=1;
+  for(let s=0;s<=20;s+=5){const xx=X(now-s*1000);x.beginPath();x.moveTo(xx,8);x.lineTo(xx,h-22);x.stroke();x.fillText(s?`-${s}s`:'now',xx-12,h-6)}
+  const rows=[['Profile',38,'#E8890C','p'],['Gait',108,'#D62839','g']];
+  while(S.samples.length>2&&S.samples[1].t<now-span-2000)S.samples.shift();
+  for(const [name,y0,col,k] of rows){
+    x.fillStyle='#5E6E63';x.fillText(name,8,y0+14);
+    const hi=y0,lo=y0+30;x.strokeStyle=col;x.lineWidth=2.4;x.beginPath();
+    let v=S.samples.length?S.samples[0][k]:0, px=L;x.moveTo(px,v?lo:hi);
+    for(const sm of S.samples){const xx=Math.max(L,X(sm.t));x.lineTo(xx,v?lo:hi);v=sm[k];x.lineTo(xx,v?lo:hi)}
+    x.lineTo(R,v?lo:hi);x.stroke();
+  }
+}
+
+/* ===================== events ===================== */
+function onEvent(e){
+  e.rx=Date.now();
+  S.events.unshift(e); if(S.events.length>60)S.events.pop();
+  if(S.demo)bumpCounts(e);
+  renderLog();renderSignature(e);banner(e);
+  const nil=e.cls==='NILGAI',hum=e.cls==='HUMAN';
+  anim={t0:performance.now(),enter:e.dir!=='EXITING',x:300,icon:nil?'🦌':(hum?'🚶':'❔'),col:CLSC[e.cls]||'#5E6E63',label:`${CLSN[e.cls]||e.cls} · ${e.dir.toLowerCase()}`};
+}
+function evTime(e){const d=e.epoch>1e9?new Date(e.epoch*1000):new Date(e.rx);return d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'})}
+function inference(e){
+  const p=Math.round(e.p*100);
+  const m={
+    ALERT:`NilGai ${e.dir==='ENTERING'?'entering':'in boundary'} (${p}%) → ${e.action}`,
+    CLEARED:`NilGai leaving the field (${p}%) → ${e.action}`,
+    SAFE:`Person crossing (${100-p}% human) → alarm suppressed`,
+    WARNING:`Uncertain ${e.dir.toLowerCase()} crossing (${p}% NilGai) → please confirm`,
+    CHECK:`${CLSN[e.cls]||e.cls} · direction unclear → ${e.action}`,
+    LOW:`Only gait beam broken → small animal, no horn`,
+    IGNORED:`Below threshold → ignored`};
+  if(e.cls==='OBSTRUCTION')return 'Beam blocked > 20 s → check alignment / vegetation';
+  if(e.cls==='UNKNOWN'&&!e.NG)return 'Profile broken without legs → check gait beam alignment';
+  return m[e.status]||e.action;
+}
+function renderLog(){
+  const tb=$('log');
+  if(!S.events.length){tb.innerHTML='<tr><td colspan="11" class="empty">No crossings yet.</td></tr>';return}
+  tb.innerHTML=S.events.map(e=>{
+    const lab=S.labels[e.id]||'', st=e.status||'INFO';
+    const dirc=e.dir==='ENTERING'?'#E08A00':(e.dir==='EXITING'?'#2F78C4':'#5E6E63');
+    return `<tr><td>${e.id}</td><td>${evTime(e)}</td><td style="color:${dirc};font-weight:700">${e.dir}</td>
+      <td style="color:${CLSC[e.cls]||'#000'};font-weight:700">${CLSN[e.cls]||e.cls}</td><td>${Math.round(e.p*100)}%</td>
+      <td>${(e.TP/1000).toFixed(2)}</td><td>${e.NG}</td><td>${e.K?(+e.K).toFixed(1):'–'}</td><td>${e.NG&&e.TP?(e.dt>0?'+':'')+e.dt:'–'}</td>
+      <td class="inf"><span class="tag" style="background:${SEV[st]||'#5E6E63'}">${st}</span> ${inference(e)}</td>
+      <td class="fb">${(e.cls==='SMALL_ANIMAL'||e.cls==='OBSTRUCTION')?'–':`<button data-l="${e.id}:human" class="${lab==='human'?'sel':''}">Human</button><button data-l="${e.id}:nilgai" class="${lab==='nilgai'?'sel':''}">NilGai</button>`}</td></tr>`}).join('');
+}
+document.addEventListener('click',ev=>{
+  const b=ev.target.closest('[data-l]');if(b){const [id,k]=b.dataset.l.split(':');S.labels[id]=k;send(`label:${id}:${k}`);renderLog();return}
+  const c=ev.target.closest('[data-cmd]');if(c)send(c.dataset.cmd);
+});
+
+/* ===================== signature + explanation ===================== */
+function renderSignature(e){
+  const s=$('sig');s.innerHTML='';
+  const P=e.P||[],G=e.G||[];const end=Math.max(1,...P.map(i=>i[1]),...G.map(i=>i[1]))*1.08;
+  const L=70,R=505,X=t=>L+(R-L)*t/end,col=CLSC[e.cls]||'#5E6E63';
+  const wave=(iv,y,c)=>{let d=`M${L},${y}`;for(const [a,b] of iv)d+=` L${X(a)},${y} L${X(a)},${y+32} L${X(b)},${y+32} L${X(b)},${y}`;d+=` L${R},${y}`;el('path',{d,fill:'none',stroke:c,'stroke-width':3,'stroke-linejoin':'round'},s)};
+  el('text',{x:4,y:44,'font-size':13,fill:'#5E6E63'},s,'Profile');el('text',{x:4,y:124,'font-size':13,fill:'#5E6E63'},s,'Gait');
+  wave(P,26,'#E8890C');wave(G,106,'#D62839');
+  if(P.length&&G.length){
+    const a=X(P[0][0]),b=X(G[0][0]),c2=e.dt>0?'#1E9E5A':'#7B4FC9';
+    el('line',{x1:a,y1:62,x2:a,y2:150,stroke:'#8A949C','stroke-dasharray':'4 4'},s);el('line',{x1:b,y1:62,x2:b,y2:150,stroke:'#8A949C','stroke-dasharray':'4 4'},s);
+    el('line',{x1:a,y1:172,x2:b,y2:172,stroke:c2,'stroke-width':3},s);
+    el('text',{x:Math.max(a,b)+8,y:177,'font-size':13,'font-weight':700,fill:c2},s,`Δt = ${e.dt>0?'+':''}${e.dt} ms → ${e.dir}`);
+  }
+  el('text',{x:L,y:203,'font-size':11.5,fill:'#5E6E63'},s,`0 s`);el('text',{x:R,y:203,'text-anchor':'end','font-size':11.5,fill:'#5E6E63'},s,`${(end/1000).toFixed(1)} s`);
+  $('sigHint').textContent=`Crossing #${e.id} at ${evTime(e)} — ${CLSN[e.cls]||e.cls}, ${e.dir.toLowerCase()}.`;
+  const feats=[[ (e.TP/1000).toFixed(2)+' s','Profile block T_P'],[e.NG,'Leg pulses N_G'],[e.K?(+e.K).toFixed(1):'–','Body / leg ratio K'],[e.gap?(+e.gap).toFixed(2):'–','Fore/hind gap'],
+               [e.NG&&e.TP?(e.dt>0?'+':'')+e.dt+' ms':'–','Δt start'],[e.v>0?(+e.v).toFixed(2)+' m/s':'n/a','Speed (needs offset)']];
+  $('feat').innerHTML=feats.map(f=>`<div><b>${f[0]}</b><span>${f[1]}</span></div>`).join('');
+  const c=e.c||{};const rows=[['Body/leg ratio K',c.K],['Leg count',c.N],['Leg pattern',c.gap],[e.v>0?'Body length':'Profile time',e.v>0?c.L:c.T]];
+  $('contrib').innerHTML='<div style="font-size:12.5px;color:var(--muted)">Evidence (← human · NilGai →)</div>'+rows.map(([n,v])=>{v=+v||0;const w=Math.min(50,Math.abs(v)/2.5*50);
+    return `<div class="crow"><span>${n}</span><div class="cbar"><span style="left:${v>=0?50:50-w}%;width:${w}%;background:${v>=0?'var(--nilgai)':'var(--human)'}"></span></div><b>${v>0?'+':''}${v.toFixed(2)}</b></div>`}).join('');
+  $('gNeedle').style.left=`calc(${(e.p*100).toFixed(1)}% - 2px)`;
+  $('verdict').innerHTML=`<b style="color:${col}">${CLSN[e.cls]||e.cls}</b> · P(NilGai) = <b>${Math.round(e.p*100)}%</b> · <span class="tag" style="background:${SEV[e.status]||'#5E6E63'}">${e.status}</span> ${e.action}`;
+}
+
+/* ===================== banner, counts, device ===================== */
+function banner(e){
+  const a=$('alert');let cls='SAFE',big='Field is safe',sub='No animal inside. Both beams are watching.';
+  if(e){cls=e.status;
+    if(e.status==='ALERT'){big='NilGai entering via boundary AB';sub=`${Math.round(e.p*100)}% NilGai · ${e.action}`}
+    else if(e.status==='CLEARED'){big='NilGai left the field';sub='Deterrent stopped. Boundary AB clear.'}
+    else if(e.status==='SAFE'){big='Person crossed boundary AB';sub=`${e.dir.toLowerCase()} · alarm suppressed`}
+    else if(e.status==='WARNING'||e.status==='CHECK'){big='Uncertain crossing — please check';sub=inference(e)}
+    else if(e.status==='LOW'){big='Small animal at boundary AB';sub='Only the gait beam was broken. No horn.'}
+    else{cls='SAFE'}
+    S.bannerUntil=Date.now()+(e.status==='ALERT'?15000:9000);
+  }
+  a.className='alert '+(cls==='CLEARED'?'SAFE':cls);$('aBig').textContent=big;$('aSub').textContent=sub;
+}
+function bannerIdle(){
+  if(Date.now()<S.bannerUntil)return;
+  const online=S.demo||(S.devOnline&&Date.now()-S.lastState<10000);
+  const a=$('alert');
+  if(!online){a.className='alert WAIT';$('aBig').textContent='Waiting for the field device…';$('aSub').textContent=client&&client.connected?'Cloud connected. Power the master node and connect it to the hotspot.':'Connecting to the cloud broker…';return}
+  if(S.live.horn){a.className='alert ALERT';$('aBig').textContent='Horn sounding at boundary AB';$('aSub').textContent='Press Stop alarm to silence.';return}
+  if(S.state&&!S.state.armed){a.className='alert WARNING';$('aBig').textContent='System disarmed';$('aSub').textContent='Crossings are logged but the horn stays off.';return}
+  a.className='alert SAFE';$('aBig').textContent='Field is safe';$('aSub').textContent='No animal inside. Both beams are watching.';
+}
+function bumpCounts(e){const c=S.counts;if(e.cls==='NILGAI')c.nilgai++;else if(e.cls==='HUMAN')c.human++;else if(e.cls==='SMALL_ANIMAL')c.small++;else c.unknown++;
+  if(e.dir==='ENTERING')c.enter++;else if(e.dir==='EXITING')c.exit++;renderCounts(c)}
+function renderCounts(c){if(!c)return;$('cN').textContent=c.nilgai;$('cH').textContent=c.human;$('cE').textContent=c.enter;$('cX').textContent=c.exit;$('cU').textContent=c.unknown;$('cS').textContent=c.small}
+function renderLearn(l,minPulse){
+  if(!l)return;
+  $('learn').innerHTML=`<span>Human K (avg)</span><b>${(+l.Kh).toFixed(1)}</b><span>NilGai K (avg)</span><b>${(+l.Kn).toFixed(1)}</b>
+    <span>K decision point</span><b>${(+l.Kc).toFixed(1)}</b><span>Human profile time</span><b>${(l.Th/1000).toFixed(2)} s</b>
+    <span>NilGai profile time</span><b>${(l.Tn/1000).toFixed(2)} s</b><span>Relay hold compensation</span><b>${l.hold} ms</b>
+    <span>Learning updates (H / N)</span><b>${l.nH} / ${l.nN}</b><span>Shortest gait pulse</span><b>${minPulse?Math.round(minPulse)+' ms':'–'}</b>`;
+  $('latchWarn').style.display=minPulse>300&&!(l.hold>0)?'block':'none';
+}
+function renderDev(){
+  const st=S.state, online=S.demo||(S.devOnline&&st&&Date.now()-S.lastState<10000);
+  $('dotDev').className='dot '+(online?'ok':(S.devOnline?'warn':'bad'));
+  $('devTxt').textContent=S.demo?'Demo device':(online?'Node A online':'Node A offline');
+  const arm=st?!!st.armed:true;const b=$('armBtn');b.dataset.cmd=arm?'disarm':'arm';b.textContent=arm?'Disarm':'Arm';b.className='sbtn '+(arm?'primary':'danger');
+  if(!st){$('dev').innerHTML='<span>Status</span><b>No data yet</b><span>Expected topic</span><b style="word-break:break-all">'+CFG.root+'</b>';return}
+  const up=Math.floor(st.up/1000),hh=Math.floor(up/3600),mm=Math.floor(up/60)%60,ss=up%60;
+  $('dev').innerHTML=`<span>Status</span><b>${online?'Online':'Stale'}${st.armed?' · armed':' · disarmed'}</b><span>IP address</span><b>${st.ip}</b>
+    <span>Wi-Fi RSSI</span><b>${st.rssi} dBm</b><span>Uptime</span><b>${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}</b>
+    <span>Blocked level</span><b>${st.lvl}</b><span>Beam offset d</span><b>${st.offset>0?st.offset+' m':'same plane'}</b><span>Last decision</span><b>${st.last}</b><span>Free heap</span><b>${st.heap} B</b>`;
+}
+
+/* ===================== demo mode (same maths as the firmware) ===================== */
+const DL={lnK_h:Math.log(2.5),lnK_n:Math.log(18),lnT_h:Math.log(900),lnT_n:Math.log(2600),nH:0,nN:0};
+let demoId=0,demoTimer=null,demoHorn=null;
+function jsClassify(P,G){
+  const TP=P.reduce((s,i)=>s+i[1]-i[0],0),NG=G.length;
+  const w=G.map(i=>i[1]-i[0]).sort((a,b)=>a-b),wG=NG?(NG%2?w[(NG-1)/2]:(w[NG/2-1]+w[NG/2])/2):0;
+  let gap=0;if(NG>=3){let mg=0;for(let i=1;i<NG;i++)mg=Math.max(mg,G[i][0]-G[i-1][1]);gap=mg/(G[NG-1][1]-G[0][0])}
+  const e={TP,NG,wG,gap,K:0,dt:0,dtE:0,v:0,L:0,c:{K:0,N:0,gap:0,T:0,L:0},P,G};
+  if(!P.length&&NG){Object.assign(e,{cls:'SMALL_ANIMAL',dir:'UNKNOWN',p:.1});return e}
+  e.K=TP/Math.max(10,wG);e.dt=G[0][0]-P[0][0];e.dtE=P[P.length-1][1]-G[NG-1][1];
+  let vote=0;if(e.dt>60)vote+=2;if(e.dt<-60)vote-=2;if(e.dtE>60)vote-=1;if(e.dtE<-60)vote+=1;
+  e.dir=vote>0?'ENTERING':vote<0?'EXITING':'UNKNOWN';
+  const Kc=(DL.lnK_h+DL.lnK_n)/2,sK=Math.max(.35,(DL.lnK_n-DL.lnK_h)/4),Tc=(DL.lnT_h+DL.lnT_n)/2,sT=Math.max(.3,(DL.lnT_n-DL.lnT_h)/4);
+  e.c.K=2.2*Math.tanh((Math.log(Math.max(.2,e.K))-Kc)/sK);
+  e.c.N=NG>=4?1.4:NG===3?.7:NG===2?-1:-.3; e.c.gap=NG>=3?(gap>.35?.6:-.2):0;
+  e.c.T=.7*Math.tanh((Math.log(Math.max(20,TP))-Tc)/sT);
+  const z=e.c.K+e.c.N+e.c.gap+e.c.T;e.p=1/(1+Math.exp(-z));
+  e.cls=e.p>=.7?'NILGAI':e.p<=.3?'HUMAN':'UNKNOWN';e.lnK=Math.log(Math.max(.2,e.K));e.lnT=Math.log(TP);return e;
+}
+function jsAct(e){
+  const armed=!S.state||S.state.armed;e.status='INFO';e.action='Logged';
+  if(e.cls==='NILGAI'){if(e.dir==='ENTERING'){e.status='ALERT';e.action=armed?'Horn 5 s + strobe':'Disarmed - no horn';if(armed)demoHornOn(5000)}
+    else if(e.dir==='EXITING'){e.status='CLEARED';e.action='Animal left - horn stopped';demoHornOn(0)}else{e.status='CHECK';e.action='Horn 2 s (direction unclear)';if(armed)demoHornOn(2000)}}
+  else if(e.cls==='HUMAN'){e.status='SAFE';e.action='Person - alarm suppressed'}
+  else if(e.cls==='UNKNOWN'){e.status=e.dir==='ENTERING'?'WARNING':'CHECK';e.action='Uncertain - short chirp, please confirm'}
+  else if(e.cls==='SMALL_ANIMAL'){e.status='LOW';e.action='Small animal (gait only) - no horn'}
+}
+function demoHornOn(ms){clearTimeout(demoHorn);setLive({...S.live,horn:ms?1:0});if(ms)demoHorn=setTimeout(()=>setLive({...S.live,horn:0}),ms)}
+const R=(a,b)=>a+Math.random()*(b-a);
+function makeScenario(){
+  const r=Math.random();let kind,exit=Math.random()<.4,P=[],G=[];
+  if(r<.42){kind='human';const slow=Math.random()<.3?R(4,9):1;const tp=R(280,520)*slow,lw=R(100,160)*slow;const g0=R(60,140)*slow;
+    P=[[0,tp]];G=[[g0,g0+lw],[g0+lw+R(60,140)*slow,g0+2*lw+R(60,140)*slow]];}
+  else if(r<.85){kind='nilgai';const slow=Math.random()<.3?R(2,3):R(.6,1.1);const tp=R(1000,1500)*slow,lw=R(55,95)*slow;
+    P=[[0,tp]];const f=[.15,.27,.72,.84];G=f.map(k=>{const s=k*tp+R(-20,20);return [s,s+lw]});}
+  else {kind='small';P=[];G=[0,1,2,3].map(i=>{const s=i*R(90,140);return [s,s+R(35,60)]})}
+  if(exit&&P.length){const end=Math.max(...P.map(i=>i[1]),...G.map(i=>i[1]));const m=iv=>iv.map(([a,b])=>[end-b,end-a]).reverse();P=m(P);G=m(G)}
+  return {P:P.map(i=>i.map(Math.round)),G:G.map(i=>i.map(Math.round))};
+}
+function runScenario(){
+  const {P,G}=makeScenario();const edges=[];
+  P.forEach(([a,b])=>{edges.push([a,'p',1],[b,'p',0])});G.forEach(([a,b])=>{edges.push([a,'g',1],[b,'g',0])});
+  edges.forEach(([t,k,v])=>setTimeout(()=>{if(!S.demo)return;setLive({...S.live,[k]:v})},t));
+  const end=Math.max(...edges.map(e=>e[0]));
+  setTimeout(()=>{if(!S.demo)return;const e=jsClassify(P,G);jsAct(e);e.id=++demoId;e.epoch=0;
+    if(e.cls==='HUMAN'&&e.p<.1)learnJS('HUMAN',e,.05);if(e.cls==='NILGAI'&&e.p>.9)learnJS('NILGAI',e,.05);onEvent(e);pushDemoState()},end+900);
+  demoTimer=setTimeout(runScenario,end+R(5000,8000));
+}
+function learnJS(cls,e,a){if(!e.lnK)return;if(cls==='HUMAN'){DL.lnK_h+=a*(e.lnK-DL.lnK_h);DL.lnT_h+=a*(e.lnT-DL.lnT_h);DL.nH++}else{DL.lnK_n+=a*(e.lnK-DL.lnK_n);DL.lnT_n+=a*(e.lnT-DL.lnT_n);DL.nN++}
+  DL.lnK_n=Math.max(DL.lnK_n,DL.lnK_h+.6);DL.lnT_n=Math.max(DL.lnT_n,DL.lnT_h+.3)}
+function pushDemoState(){S.state=Object.assign(S.state||{armed:1},{ip:'demo',rssi:-48,up:performance.now(),lvl:'HIGH',offset:0,heap:31000,last:S.events[0]?`${S.events[0].cls} ${S.events[0].dir}`:'—'});S.lastState=Date.now();
+  renderLearn({Kh:Math.exp(DL.lnK_h),Kn:Math.exp(DL.lnK_n),Kc:Math.exp((DL.lnK_h+DL.lnK_n)/2),Th:Math.exp(DL.lnT_h),Tn:Math.exp(DL.lnT_n),hold:0,nH:DL.nH,nN:DL.nN},90);renderDev()}
+function demoCmd(c){
+  if(c==='horn')demoHornOn(2000);else if(c==='stop')demoHornOn(0);else if(c==='arm'||c==='disarm'){S.state.armed=c==='arm'?1:0;if(c==='disarm')demoHornOn(0)}
+  else if(c==='reset_learn'){Object.assign(DL,{lnK_h:Math.log(2.5),lnK_n:Math.log(18),lnT_h:Math.log(900),lnT_n:Math.log(2600),nH:0,nN:0})}
+  else if(c.startsWith('label:')){const [,id,k]=c.split(':');const e=S.events.find(x=>String(x.id)===id);if(e)learnJS(k==='nilgai'?'NILGAI':'HUMAN',e,.25)}
+  pushDemoState();toast('Demo: '+c);
+}
+function setDemo(on){
+  S.demo=on;$('demoBtn').classList.toggle('on',on);$('demoBtn').textContent=on?'Demo ON':'Demo mode';
+  clearTimeout(demoTimer);S.events=[];S.samples=[];S.labels={};S.counts={nilgai:0,human:0,unknown:0,small:0,enter:0,exit:0};renderCounts(S.counts);renderLog();
+  if(on){if(client){try{client.end(true)}catch(e){}client=null}setNet('warn','Demo (offline)');S.state={armed:1};setLive({p:0,g:0,horn:0});pushDemoState();setTimeout(runScenario,1200)}
+  else{S.state=null;S.devOnline=false;connect()}
+  renderDev();
+}
+$('demoBtn').onclick=()=>setDemo(!S.demo);
+
+/* ===================== settings dialog ===================== */
+$('setBtn').onclick=()=>{$('inUrl').value=CFG.url;$('inRoot').value=CFG.root;$('dlg').showModal()};
+$('dlgCancel').onclick=()=>$('dlg').close();
+$('dlgSave').onclick=()=>{CFG={url:$('inUrl').value.trim()||DEF.url,root:$('inRoot').value.trim().replace(/\/+$/,'')||DEF.root};saveCfg(CFG);$('dlg').close();S.state=null;connect();renderDev()};
+
+/* ===================== misc ===================== */
+let toastT=null;function toast(t){const e=$('toast');e.textContent=t;e.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>e.classList.remove('show'),2200)}
+function frame(){drawScope();if(anim)drawBoundary();requestAnimationFrame(frame)}
+setInterval(()=>{$('clock').textContent=new Date().toLocaleTimeString();bannerIdle();if(!S.demo)renderDev()},1000);
+renderLamps();drawBoundary();renderDev();renderLearn({Kh:2.5,Kn:18,Kc:6.7,Th:900,Tn:2600,hold:0,nH:0,nN:0},0);
+connect();requestAnimationFrame(frame);
+</script>
+</body>
+</html>
