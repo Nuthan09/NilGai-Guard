@@ -84,6 +84,15 @@ canvas{width:100%;display:block}
 .sbtn.primary{background:var(--leaf);border-color:var(--leaf);color:#fff}
 .sbtn.danger{background:var(--sev-high);border-color:var(--sev-high);color:#fff}
 .note{font-size:12.5px;color:var(--muted);margin-top:8px}
+.setrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:8px 0}
+.setrow label{font-size:13px;color:var(--muted);min-width:118px}
+.setrow input[type=range]{flex:1;min-width:120px;accent-color:var(--leaf-2)}
+.setrow output{font-weight:700;min-width:44px}
+.chipbtn{border:1px solid var(--line);background:#fff;border-radius:999px;padding:6px 11px;font-size:12.5px;font-weight:700;color:var(--ink)}
+.chipbtn.on{background:var(--leaf);border-color:var(--leaf);color:#fff}
+.chipbtn.warn{background:var(--sev-high);border-color:var(--sev-high);color:#fff}
+.setrow select{padding:6px 8px;border:1px solid var(--line);border-radius:9px;font:inherit;font-size:13px}
+.sub{font-size:13px;font-weight:700;margin-top:12px}
 .warnbox{margin-top:10px;background:#FFF4E5;border:1px solid #F5C99A;color:#7A4A12;border-radius:10px;padding:8px 10px;font-size:12.5px;display:none}
 
 .full{padding:18px 26px 26px}
@@ -188,6 +197,29 @@ footer{padding:0 26px 22px;font-size:12px;color:var(--muted)}
     </section>
 
     <section class="panel">
+      <h2>Speaker &amp; sensors</h2>
+      <p class="hint">Saved on the device. Detection and logging keep running while the sound is off.</p>
+      <div class="setrow"><label>Sound</label>
+        <button class="chipbtn" id="sndOn" data-cmd="unmute">On</button>
+        <button class="chipbtn" id="sndOff" data-cmd="mute">Mute</button>
+        <span id="sndTxt" style="font-size:13px;color:var(--muted)"></span></div>
+      <div class="setrow"><label>Snooze sound</label>
+        <button class="chipbtn" data-cmd="snooze:10">10 min</button><button class="chipbtn" data-cmd="snooze:30">30 min</button>
+        <button class="chipbtn" data-cmd="snooze:60">1 h</button><button class="chipbtn" data-cmd="snooze:0">Cancel</button></div>
+      <div class="setrow"><label>NilGai horn length</label><input type="range" id="alR" min="1" max="60" value="5"><output id="alV">5 s</output>
+        <button class="chipbtn" id="alSave">Save</button></div>
+      <div class="setrow"><label>Short horn length</label><input type="range" id="ckR" min="1" max="20" value="2"><output id="ckV">2 s</output>
+        <button class="chipbtn" id="ckSave">Save</button></div>
+      <div class="setrow"><label>Uncertain crossings</label>
+        <button class="chipbtn" id="uncOff" data-cmd="uncertain:off">No horn</button><button class="chipbtn" id="uncOn" data-cmd="uncertain:on">Short horn</button></div>
+      <div class="sub">Beam polarity <span style="font-weight:400;color:var(--muted)">— with both beams clear they must read CLEAR</span></div>
+      <div class="setrow"><label>Profile blocked =</label><select id="polP"><option value="auto">Auto at boot</option><option value="high">HIGH</option><option value="low">LOW</option></select><span id="rawP" style="font-size:12.5px;color:var(--muted)"></span></div>
+      <div class="setrow"><label>Gait blocked =</label><select id="polG"><option value="auto">Auto at boot</option><option value="high">HIGH</option><option value="low">LOW</option></select><span id="rawG" style="font-size:12.5px;color:var(--muted)"></span></div>
+      <div class="setrow"><button class="sbtn primary" data-cmd="autodetect" title="Both beams must be clear">Re-detect now &amp; save (beams clear)</button></div>
+      <div class="warnbox" id="polWarn">A beam has been <b>BLOCKED</b> for a long time. If nothing is in the beam, press <b>Re-detect now</b> (keep both beams clear), or check the receiver's own alarm LED — if that LED is lit, the beam is misaligned.</div>
+    </section>
+
+    <section class="panel">
       <h2>Today</h2>
       <div class="grid2">
         <div class="stat"><b id="cN" style="color:var(--sev-high)">0</b><span>NilGai crossings</span></div>
@@ -270,7 +302,7 @@ function setNet(k,txt){$('dotNet').className='dot '+k;$('netTxt').textContent=tx
 function onMsg(sub,txt){
   if(sub==='status'){S.devOnline=(txt==='online');if(!S.devOnline)S.state=null;renderDev();return}
   let j;try{j=JSON.parse(txt)}catch(e){return}
-  if(sub==='state'){S.state=j;S.lastState=Date.now();S.devOnline=true;setLive({p:j.p,g:j.g,horn:j.horn});renderDev();renderLearn(j.learn,j.minPulse);renderCounts(j.cnt)}
+  if(sub==='state'){S.state=j;S.lastState=Date.now();S.devOnline=true;setLive({p:j.p,g:j.g,horn:j.horn});renderDev();renderSettings(j);renderLearn(j.learn,j.minPulse);renderCounts(j.cnt)}
   else if(sub==='live'){setLive(j)}
   else if(sub==='event'){onEvent(j)}
   else if(sub==='ack'){toast(j.result||'done')}
@@ -456,6 +488,22 @@ function renderLearn(l,minPulse){
     <span>Learning updates (H / N)</span><b>${l.nH} / ${l.nN}</b><span>Shortest gait pulse</span><b>${minPulse?Math.round(minPulse)+' ms':'–'}</b>`;
   $('latchWarn').style.display=minPulse>300&&!(l.hold>0)?'block':'none';
 }
+let setInit=false,blkSince={p:0,g:0};
+function renderSettings(st){
+  const S=st&&st.set;if(!S)return;
+  $('sndOn').classList.toggle('on',!!S.sound&&!S.snooze);$('sndOff').classList.toggle('warn',!S.sound);
+  $('sndTxt').textContent=!S.sound?'muted':(S.snooze?`snoozed, ${Math.ceil(S.snooze/60)} min left`:'on');
+  $('uncOn').classList.toggle('on',!!S.unc);$('uncOff').classList.toggle('on',!S.unc);
+  if(!setInit){$('alR').value=S.alert;$('alV').textContent=S.alert+' s';$('ckR').value=S.check;$('ckV').textContent=S.check+' s';setInit=true}
+  const pv=v=>v<0?'auto':(v?'high':'low');
+  if(document.activeElement!==$('polP'))$('polP').value=pv(S.polP);if(document.activeElement!==$('polG'))$('polG').value=pv(S.polG);
+  $('rawP').textContent=`pin reads ${st.rawP?'HIGH':'LOW'} → ${st.p?'BLOCKED':'clear'}`;$('rawG').textContent=`pin reads ${st.rawG?'HIGH':'LOW'} → ${st.g?'BLOCKED':'clear'}`;
+  const now=Date.now();for(const k of ['p','g']){if(st[k]){if(!blkSince[k])blkSince[k]=now}else blkSince[k]=0}
+  $('polWarn').style.display=(blkSince.p&&now-blkSince.p>25000)||(blkSince.g&&now-blkSince.g>25000)?'block':'none';
+}
+$('alR').oninput=()=>$('alV').textContent=$('alR').value+' s';$('ckR').oninput=()=>$('ckV').textContent=$('ckR').value+' s';
+$('alSave').onclick=()=>send('alert_s:'+$('alR').value);$('ckSave').onclick=()=>send('check_s:'+$('ckR').value);
+$('polP').onchange=e=>send('pol:p:'+e.target.value);$('polG').onchange=e=>send('pol:g:'+e.target.value);
 function renderDev(){
   const st=S.state, online=S.demo||(S.devOnline&&st&&Date.now()-S.lastState<10000);
   $('dotDev').className='dot '+(online?'ok':(S.devOnline?'warn':'bad'));
@@ -465,7 +513,7 @@ function renderDev(){
   const up=Math.floor(st.up/1000),hh=Math.floor(up/3600),mm=Math.floor(up/60)%60,ss=up%60;
   $('dev').innerHTML=`<span>Status</span><b>${online?'Online':'Stale'}${st.armed?' · armed':' · disarmed'}</b><span>IP address</span><b>${st.ip}</b>
     <span>Wi-Fi RSSI</span><b>${st.rssi} dBm</b><span>Uptime</span><b>${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}</b>
-    <span>Blocked level</span><b>${st.lvl}</b><span>Beam offset d</span><b>${st.offset>0?st.offset+' m':'same plane'}</b><span>Last decision</span><b>${st.last}</b><span>Free heap</span><b>${st.heap} B</b>`;
+    <span>Blocked level (P/G)</span><b>${st.lvl}</b><span>Beam offset d</span><b>${st.offset>0?st.offset+' m':'same plane'}</b><span>Last decision</span><b>${st.last}</b><span>Free heap</span><b>${st.heap} B</b>`;
 }
 
 /* ===================== demo mode: physical simulator + JS port of the firmware classifier ===================== */
@@ -587,18 +635,19 @@ function jsClassify(P0,G0){
 function jsAct(e){
   const armed=!S.state||S.state.armed;e.status='INFO';e.action='Logged';
   if(e.cls==='NILGAI'){
-    if(e.dir==='ENTERING'){e.status='ALERT';e.action=armed?'Horn 5 s + strobe':'Disarmed - no horn';if(armed)demoHornOn(5000)}
+    if(e.dir==='ENTERING'){e.status='ALERT';e.action=armed?'Horn 5 s + strobe':'Disarmed - no horn';if(armed)demoHornOn(DSET.alert*1000)}
     else if(e.dir==='EXITING'){e.status='CLEARED';e.action='Animal left - horn stopped';demoHornOn(0)}
-    else if(e.dir==='TURNED_BACK'&&e.fromOutside){e.status='DETERRED';e.action=armed?'Turned back at boundary - short horn':'Turned back at boundary';if(armed)demoHornOn(2000)}
-    else if(e.dir==='TURNED_BACK'){e.status='ALERT';e.action='Turned back into the field - horn 5 s';if(armed)demoHornOn(5000)}
-    else{e.status='CHECK';e.action='Horn 2 s (direction unclear)';if(armed)demoHornOn(2000)}}
+    else if(e.dir==='TURNED_BACK'&&e.fromOutside){e.status='DETERRED';e.action=armed?'Turned back at boundary - short horn':'Turned back at boundary';if(armed)demoHornOn(DSET.check*1000)}
+    else if(e.dir==='TURNED_BACK'){e.status='ALERT';e.action='Turned back into the field - horn 5 s';if(armed)demoHornOn(DSET.alert*1000)}
+    else{e.status='CHECK';e.action='Horn 2 s (direction unclear)';if(armed)demoHornOn(DSET.check*1000)}}
   else if(e.cls==='HUMAN'){e.status='SAFE';e.action=e.people>1?'People - alarm suppressed':'Person - alarm suppressed'}
   else if(e.cls==='UNKNOWN'&&e.dir==='TURNED_BACK'){e.status='CHECK';e.action='Stepped into the outer beam and went back - no horn'}
-  else if(e.cls==='UNKNOWN'){if(e.p>=.5&&e.dir==='ENTERING'){e.status='WARNING';e.action='Probable NilGai - horn 2 s, please confirm';if(armed)demoHornOn(2000)}
-    else{e.status=e.dir==='ENTERING'?'WARNING':'CHECK';e.action='Uncertain - short chirp, please confirm'}}
+  else if(e.cls==='UNKNOWN'){if(e.p>=.5&&e.dir==='ENTERING'&&DSET.unc){e.status='WARNING';e.action='Uncertain - short horn, please confirm';if(armed)demoHornOn(DSET.check*1000)}
+    else{e.status=e.dir==='ENTERING'?'WARNING':'CHECK';e.action='Uncertain - no horn, please confirm'}}
   else if(e.cls==='SMALL_ANIMAL'){e.status='LOW';e.action='Small animal (gait only) - no horn'}
 }
-function demoHornOn(ms){clearTimeout(demoHorn);setLive({...S.live,horn:ms?1:0});if(ms)demoHorn=setTimeout(()=>setLive({...S.live,horn:0}),ms)}
+function demoSoundOK(){return DSET.sound&&!(DSET.snoozeEnd>Date.now())}
+function demoHornOn(ms,force){if(ms&&!force&&!demoSoundOK())return;clearTimeout(demoHorn);setLive({...S.live,horn:ms?1:0});if(ms)demoHorn=setTimeout(()=>setLive({...S.live,horn:0}),ms)}
 function pickScenario(){let r=Math.random(),acc=0;for(const sc of SCEN){acc+=sc[1];if(r<acc)return sc}return SCEN[0]}
 function runScenario(){
   const sc=pickScenario();const {P,G}=sc[2]();const edges=[];
@@ -609,11 +658,18 @@ function runScenario(){
   setTimeout(()=>{if(!S.demo)return;const e=jsClassify(P,G);if(e.cls==='NOISE')return;jsAct(e);e.id=++demoId;e.epoch=0;e.scenario=sc[0];onEvent(e);pushDemoState();toast('Demo scenario: '+sc[0])},end+900);
   demoTimer=setTimeout(runScenario,end+R(5000,8000));
 }
-function pushDemoState(){S.state=Object.assign(S.state||{armed:1},{ip:'demo',rssi:-48,up:performance.now(),lvl:'HIGH',offset:DCFG.D,heap:31000,last:S.events[0]?`${S.events[0].cls} ${S.events[0].dir}`:'—'});S.lastState=Date.now();
-  renderLearn({Ch:Math.exp(DL.lnC_h),Cn:Math.exp(DL.lnC_n),Kh:Math.exp(DL.lnK_h),Kn:Math.exp(DL.lnK_n),Kc:Math.exp((DL.lnK_h+DL.lnK_n)/2),Th:Math.exp(DL.lnT_h),Tn:Math.exp(DL.lnT_n),hold:0,nH:DL.nH,nN:DL.nN},90);renderDev()}
+const DSET={sound:1,snooze:0,snoozeEnd:0,alert:5,check:2,unc:0,polP:-1,polG:-1,lvlP:1,lvlG:1};
+function pushDemoState(){DSET.snooze=DSET.snoozeEnd>Date.now()?Math.round((DSET.snoozeEnd-Date.now())/1000):0;S.state=Object.assign(S.state||{armed:1},{ip:'demo',rssi:-48,up:performance.now(),lvl:'HIGH/HIGH',rawP:S.live.p?1:0,rawG:S.live.g?1:0,p:S.live.p,g:S.live.g,set:{...DSET},offset:DCFG.D,heap:31000,last:S.events[0]?`${S.events[0].cls} ${S.events[0].dir}`:'—'});S.lastState=Date.now();
+  renderSettings(S.state);renderLearn({Ch:Math.exp(DL.lnC_h),Cn:Math.exp(DL.lnC_n),Kh:Math.exp(DL.lnK_h),Kn:Math.exp(DL.lnK_n),Kc:Math.exp((DL.lnK_h+DL.lnK_n)/2),Th:Math.exp(DL.lnT_h),Tn:Math.exp(DL.lnT_n),hold:0,nH:DL.nH,nN:DL.nN},90);renderDev()}
 function demoCmd(c){
-  if(c==='horn')demoHornOn(2000);else if(c==='stop')demoHornOn(0);else if(c==='arm'||c==='disarm'){S.state.armed=c==='arm'?1:0;if(c==='disarm')demoHornOn(0)}
+  if(c==='horn')demoHornOn(DSET.check*1000,true);else if(c==='stop')demoHornOn(0);else if(c==='arm'||c==='disarm'){S.state.armed=c==='arm'?1:0;if(c==='disarm')demoHornOn(0)}
   else if(c==='reset_learn')resetDL();
+  else if(c==='mute'){DSET.sound=0;demoHornOn(0)}else if(c==='unmute'){DSET.sound=1;DSET.snoozeEnd=0}
+  else if(c.startsWith('snooze:')){const m=+c.split(':')[1];DSET.snoozeEnd=m>0?Date.now()+m*60000:0;if(m>0)demoHornOn(0)}
+  else if(c.startsWith('alert_s:'))DSET.alert=+c.split(':')[1];else if(c.startsWith('check_s:'))DSET.check=+c.split(':')[1];
+  else if(c.startsWith('uncertain:'))DSET.unc=c.endsWith('on')?1:0;
+  else if(c.startsWith('pol:')){const [,b,v]=c.split(':');DSET[b==='p'?'polP':'polG']=v==='auto'?-1:(v==='high'?1:0)}
+  else if(c==='autodetect'){DSET.polP=1;DSET.polG=1}
   else if(c.startsWith('label:')){const [,id,k]=c.split(':');const e=S.events.find(x=>String(x.id)===id);if(e&&e._f)learnJS(k==='nilgai'?'NILGAI':'HUMAN',e._f,.25)}
   pushDemoState();toast('Demo: '+c);
 }
