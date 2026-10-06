@@ -219,7 +219,7 @@ footer{padding:0 26px 22px;font-size:12px;color:var(--muted)}
     <p class="hint">Tick the correct class when the system is unsure or wrong — the device adapts its thresholds.</p>
     <div class="tablewrap">
       <table>
-        <thead><tr><th>#</th><th>Time</th><th>Direction</th><th>Detected as</th><th>P(NilGai)</th><th>T<sub>P</sub> (s)</th><th>N<sub>G</sub></th><th>K</th><th>Δt (ms)</th><th>Inference → warning status</th><th>Correct?</th></tr></thead>
+        <thead><tr><th>#</th><th>Time</th><th>Direction</th><th>Detected as</th><th>P(NilGai)</th><th>T<sub>P</sub> (s)</th><th>Leg pulses</th><th>K</th><th>Δt (ms)</th><th>Inference → warning status</th><th>Correct?</th></tr></thead>
         <tbody id="log"><tr><td colspan="11" class="empty">No crossings yet.</td></tr></tbody>
       </table>
     </div>
@@ -243,7 +243,7 @@ function loadCfg(){try{return Object.assign({},DEF,JSON.parse(localStorage.getIt
 function saveCfg(c){try{localStorage.setItem('ng-cfg',JSON.stringify(c))}catch(e){}}
 let CFG=loadCfg();
 
-const SEV={ALERT:'#D62839',WARNING:'#F07D1A',CHECK:'#F07D1A',SAFE:'#3E9B5F',CLEARED:'#3E9B5F',LOW:'#8A9A3A',IGNORED:'#5E6E63',INFO:'#5E6E63'};
+const SEV={DETERRED:'#1E8C8A',ALERT:'#D62839',WARNING:'#F07D1A',CHECK:'#F07D1A',SAFE:'#3E9B5F',CLEARED:'#3E9B5F',LOW:'#8A9A3A',IGNORED:'#5E6E63',INFO:'#5E6E63'};
 const CLSC={HUMAN:'#2F78C4',NILGAI:'#E08A00',UNKNOWN:'#F07D1A',SMALL_ANIMAL:'#8A9A3A',OBSTRUCTION:'#D62839',NOISE:'#5E6E63'};
 const CLSN={HUMAN:'Human',NILGAI:'NilGai',UNKNOWN:'Uncertain',SMALL_ANIMAL:'Small animal',OBSTRUCTION:'Beam obstructed',NOISE:'Noise'};
 const $=id=>document.getElementById(id);
@@ -320,7 +320,7 @@ function drawBoundary(){
     if(master)el('text',{x,y:76,'text-anchor':'middle','font-size':20},s,'📢');
   };
   post(68,'A','Master · ESP8266',true); post(572,'B','Transmitters',false);
-  if(anim){const k=Math.min(1,(performance.now()-anim.t0)/1800);const y=anim.enter?20+k*230:250-k*230;
+  if(anim){const k=Math.min(1,(performance.now()-anim.t0)/1800);const y=anim.back?20+Math.sin(k*Math.PI)*120:(anim.enter?20+k*230:250-k*230);
     const g=el('g',{transform:`translate(${anim.x},${y})`},s);
     el('circle',{r:26,fill:anim.col,'fill-opacity':.22},g);
     el('text',{y:10,'text-anchor':'middle','font-size':30},g,anim.icon);
@@ -357,32 +357,36 @@ function onEvent(e){
   if(S.demo)bumpCounts(e);
   renderLog();renderSignature(e);banner(e);
   const nil=e.cls==='NILGAI',hum=e.cls==='HUMAN';
-  anim={t0:performance.now(),enter:e.dir!=='EXITING',x:300,icon:nil?'🦌':(hum?'🚶':'❔'),col:CLSC[e.cls]||'#5E6E63',label:`${CLSN[e.cls]||e.cls} · ${e.dir.toLowerCase()}`};
+  anim={t0:performance.now(),enter:e.dir!=='EXITING',back:e.dir==='TURNED_BACK',x:300,icon:nil?'🦌':(hum?'🚶':'❔'),col:CLSC[e.cls]||'#5E6E63',label:`${who(e)} · ${e.dir.toLowerCase().replace('_',' ')}`};
 }
+function who(e){if(e.cls==='HUMAN'&&e.people>1)return e.people+' people';if(e.cls==='NILGAI'&&e.nilgai>1)return e.nilgai+' NilGai';return CLSN[e.cls]||e.cls}
 function evTime(e){const d=e.epoch>1e9?new Date(e.epoch*1000):new Date(e.rx);return d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'})}
 function inference(e){
   const p=Math.round(e.p*100);
   const m={
     ALERT:`NilGai ${e.dir==='ENTERING'?'entering':'in boundary'} (${p}%) → ${e.action}`,
     CLEARED:`NilGai leaving the field (${p}%) → ${e.action}`,
-    SAFE:`Person crossing (${100-p}% human) → alarm suppressed`,
+    SAFE:e.dir==='TURNED_BACK'?`Person stepped in and turned back (${100-p}% human) → no alarm`:`${e.people>1?e.people+' people':'Person'} crossing (${100-p}% human) → alarm suppressed`,
     WARNING:`Uncertain ${e.dir.toLowerCase()} crossing (${p}% NilGai) → please confirm`,
     CHECK:`${CLSN[e.cls]||e.cls} · direction unclear → ${e.action}`,
     LOW:`Only gait beam broken → small animal, no horn`,
+    DETERRED:`NilGai turned back at the boundary (${p}%) → ${e.action}`,
     IGNORED:`Below threshold → ignored`};
   if(e.cls==='OBSTRUCTION')return 'Beam blocked > 20 s → check alignment / vegetation';
   if(e.cls==='UNKNOWN'&&!e.NG)return 'Profile broken without legs → check gait beam alignment';
-  return m[e.status]||e.action;
+  let t=m[e.status]||e.action;
+  if(e.note)t+=`<br><small style="color:var(--muted)">${e.note}</small>`;
+  return t;
 }
 function renderLog(){
   const tb=$('log');
   if(!S.events.length){tb.innerHTML='<tr><td colspan="11" class="empty">No crossings yet.</td></tr>';return}
   tb.innerHTML=S.events.map(e=>{
     const lab=S.labels[e.id]||'', st=e.status||'INFO';
-    const dirc=e.dir==='ENTERING'?'#E08A00':(e.dir==='EXITING'?'#2F78C4':'#5E6E63');
+    const dirc=e.dir==='ENTERING'?'#E08A00':(e.dir==='EXITING'?'#2F78C4':(e.dir==='TURNED_BACK'?'#1E8C8A':'#5E6E63'));
     return `<tr><td>${e.id}</td><td>${evTime(e)}</td><td style="color:${dirc};font-weight:700">${e.dir}</td>
-      <td style="color:${CLSC[e.cls]||'#000'};font-weight:700">${CLSN[e.cls]||e.cls}</td><td>${Math.round(e.p*100)}%</td>
-      <td>${(e.TP/1000).toFixed(2)}</td><td>${e.NG}</td><td>${e.K?(+e.K).toFixed(1):'–'}</td><td>${e.NG&&e.TP?(e.dt>0?'+':'')+e.dt:'–'}</td>
+      <td style="color:${CLSC[e.cls]||'#000'};font-weight:700">${who(e)}</td><td>${Math.round(e.p*100)}%</td>
+      <td>${(e.TP/1000).toFixed(2)}</td><td>${e.NE&&e.NE!==e.NG?`${e.NG} (${e.NE} leg${e.NE>1?'s':''})`:e.NG}</td><td>${e.K?(+e.K).toFixed(1):'–'}</td><td>${e.NG&&e.TP?(e.dt>0?'+':'')+e.dt:'–'}</td>
       <td class="inf"><span class="tag" style="background:${SEV[st]||'#5E6E63'}">${st}</span> ${inference(e)}</td>
       <td class="fb">${(e.cls==='SMALL_ANIMAL'||e.cls==='OBSTRUCTION')?'–':`<button data-l="${e.id}:human" class="${lab==='human'?'sel':''}">Human</button><button data-l="${e.id}:nilgai" class="${lab==='nilgai'?'sel':''}">NilGai</button>`}</td></tr>`}).join('');
 }
@@ -403,18 +407,18 @@ function renderSignature(e){
     const a=X(P[0][0]),b=X(G[0][0]),c2=e.dt>0?'#1E9E5A':'#7B4FC9';
     el('line',{x1:a,y1:62,x2:a,y2:150,stroke:'#8A949C','stroke-dasharray':'4 4'},s);el('line',{x1:b,y1:62,x2:b,y2:150,stroke:'#8A949C','stroke-dasharray':'4 4'},s);
     el('line',{x1:a,y1:172,x2:b,y2:172,stroke:c2,'stroke-width':3},s);
-    el('text',{x:Math.max(a,b)+8,y:177,'font-size':13,'font-weight':700,fill:c2},s,`Δt = ${e.dt>0?'+':''}${e.dt} ms → ${e.dir}`);
+    el('text',{x:Math.max(a,b)+8,y:177,'font-size':13,'font-weight':700,fill:c2},s,`Δt = ${e.dt>0?'+':''}${e.dt} ms → ${e.dir.replace('_',' ')}`);
   }
   el('text',{x:L,y:203,'font-size':11.5,fill:'#5E6E63'},s,`0 s`);el('text',{x:R,y:203,'text-anchor':'end','font-size':11.5,fill:'#5E6E63'},s,`${(end/1000).toFixed(1)} s`);
-  $('sigHint').textContent=`Crossing #${e.id} at ${evTime(e)} — ${CLSN[e.cls]||e.cls}, ${e.dir.toLowerCase()}.`;
-  const feats=[[ (e.TP/1000).toFixed(2)+' s','Profile block T_P'],[e.NG,'Leg pulses N_G'],[e.K?(+e.K).toFixed(1):'–','Body / leg ratio K'],[e.gap?(+e.gap).toFixed(2):'–','Fore/hind gap'],
-               [e.NG&&e.TP?(e.dt>0?'+':'')+e.dt+' ms':'–','Δt start'],[e.v>0?(+e.v).toFixed(2)+' m/s':'n/a','Speed (needs offset)']];
+  $('sigHint').textContent=`Crossing #${e.id} at ${evTime(e)} — ${who(e)}, ${e.dir.toLowerCase().replace('_',' ')}.${e.note?' '+e.note[0].toUpperCase()+e.note.slice(1)+'.':''}`;
+  const feats=[[ (e.TP/1000).toFixed(2)+' s','Profile block T_P'],[`${e.NG}${e.NE&&e.NE!==e.NG?' → '+e.NE:''}`,'Leg pulses → est. legs'],[e.K?(+e.K).toFixed(1):'–','Body / leg ratio K'],[e.C?(+e.C).toFixed(2):'–','Leg coverage C'],
+               [e.NG&&e.TP?(e.dtM>0?'+':'')+(e.dtM??e.dt)+' ms':'–','Δt centre (legs − body)'],[e.v>0?(+e.v).toFixed(2)+' m/s':'n/a','Speed (needs offset)']];
   $('feat').innerHTML=feats.map(f=>`<div><b>${f[0]}</b><span>${f[1]}</span></div>`).join('');
-  const c=e.c||{};const rows=[['Body/leg ratio K',c.K],['Leg count',c.N],['Leg pattern',c.gap],[e.v>0?'Body length':'Profile time',e.v>0?c.L:c.T]];
+  const c=e.c||{};const rows=[['Body/leg ratio K',c.K],['Leg coverage C',c.C],['Leg count',c.N],['Fore/hind pattern',c.gap],['Profile gap',c.pg],[e.v>0?'Body length':'Profile time',e.v>0?c.L:c.T]];
   $('contrib').innerHTML='<div style="font-size:12.5px;color:var(--muted)">Evidence (← human · NilGai →)</div>'+rows.map(([n,v])=>{v=+v||0;const w=Math.min(50,Math.abs(v)/2.5*50);
     return `<div class="crow"><span>${n}</span><div class="cbar"><span style="left:${v>=0?50:50-w}%;width:${w}%;background:${v>=0?'var(--nilgai)':'var(--human)'}"></span></div><b>${v>0?'+':''}${v.toFixed(2)}</b></div>`}).join('');
   $('gNeedle').style.left=`calc(${(e.p*100).toFixed(1)}% - 2px)`;
-  $('verdict').innerHTML=`<b style="color:${col}">${CLSN[e.cls]||e.cls}</b> · P(NilGai) = <b>${Math.round(e.p*100)}%</b> · <span class="tag" style="background:${SEV[e.status]||'#5E6E63'}">${e.status}</span> ${e.action}`;
+  $('verdict').innerHTML=`<b style="color:${col}">${who(e)}</b> · P(NilGai) = <b>${Math.round(e.p*100)}%</b> · <span class="tag" style="background:${SEV[e.status]||'#5E6E63'}">${e.status}</span> ${e.action}`;
 }
 
 /* ===================== banner, counts, device ===================== */
@@ -423,9 +427,10 @@ function banner(e){
   if(e){cls=e.status;
     if(e.status==='ALERT'){big='NilGai entering via boundary AB';sub=`${Math.round(e.p*100)}% NilGai · ${e.action}`}
     else if(e.status==='CLEARED'){big='NilGai left the field';sub='Deterrent stopped. Boundary AB clear.'}
-    else if(e.status==='SAFE'){big='Person crossed boundary AB';sub=`${e.dir.toLowerCase()} · alarm suppressed`}
+    else if(e.status==='SAFE'){big=(e.people>1?e.people+' people crossed':'Person crossed')+' boundary AB';sub=`${e.dir.toLowerCase().replace('_',' ')} · alarm suppressed`}
     else if(e.status==='WARNING'||e.status==='CHECK'){big='Uncertain crossing — please check';sub=inference(e)}
     else if(e.status==='LOW'){big='Small animal at boundary AB';sub='Only the gait beam was broken. No horn.'}
+    else if(e.status==='DETERRED'){big='NilGai turned back at boundary AB';sub=e.action}
     else{cls='SAFE'}
     S.bannerUntil=Date.now()+(e.status==='ALERT'?15000:9000);
   }
@@ -440,12 +445,12 @@ function bannerIdle(){
   if(S.state&&!S.state.armed){a.className='alert WARNING';$('aBig').textContent='System disarmed';$('aSub').textContent='Crossings are logged but the horn stays off.';return}
   a.className='alert SAFE';$('aBig').textContent='Field is safe';$('aSub').textContent='No animal inside. Both beams are watching.';
 }
-function bumpCounts(e){const c=S.counts;if(e.cls==='NILGAI')c.nilgai++;else if(e.cls==='HUMAN')c.human++;else if(e.cls==='SMALL_ANIMAL')c.small++;else c.unknown++;
+function bumpCounts(e){const c=S.counts;if(e.cls==='NILGAI')c.nilgai+=Math.max(1,e.nilgai||0);else if(e.cls==='HUMAN')c.human+=Math.max(1,e.people||0);else if(e.cls==='SMALL_ANIMAL')c.small++;else c.unknown++;
   if(e.dir==='ENTERING')c.enter++;else if(e.dir==='EXITING')c.exit++;renderCounts(c)}
 function renderCounts(c){if(!c)return;$('cN').textContent=c.nilgai;$('cH').textContent=c.human;$('cE').textContent=c.enter;$('cX').textContent=c.exit;$('cU').textContent=c.unknown;$('cS').textContent=c.small}
 function renderLearn(l,minPulse){
   if(!l)return;
-  $('learn').innerHTML=`<span>Human K (avg)</span><b>${(+l.Kh).toFixed(1)}</b><span>NilGai K (avg)</span><b>${(+l.Kn).toFixed(1)}</b>
+  $('learn').innerHTML=`${l.Ch?`<span>Human leg coverage C</span><b>${(+l.Ch).toFixed(2)}</b><span>NilGai leg coverage C</span><b>${(+l.Cn).toFixed(2)}</b>`:''}<span>Human K (avg)</span><b>${(+l.Kh).toFixed(1)}</b><span>NilGai K (avg)</span><b>${(+l.Kn).toFixed(1)}</b>
     <span>K decision point</span><b>${(+l.Kc).toFixed(1)}</b><span>Human profile time</span><b>${(l.Th/1000).toFixed(2)} s</b>
     <span>NilGai profile time</span><b>${(l.Tn/1000).toFixed(2)} s</b><span>Relay hold compensation</span><b>${l.hold} ms</b>
     <span>Learning updates (H / N)</span><b>${l.nH} / ${l.nN}</b><span>Shortest gait pulse</span><b>${minPulse?Math.round(minPulse)+' ms':'–'}</b>`;
@@ -463,62 +468,153 @@ function renderDev(){
     <span>Blocked level</span><b>${st.lvl}</b><span>Beam offset d</span><b>${st.offset>0?st.offset+' m':'same plane'}</b><span>Last decision</span><b>${st.last}</b><span>Free heap</span><b>${st.heap} B</b>`;
 }
 
-/* ===================== demo mode (same maths as the firmware) ===================== */
-const DL={lnK_h:Math.log(2.5),lnK_n:Math.log(18),lnT_h:Math.log(900),lnT_n:Math.log(2600),nH:0,nN:0};
+/* ===================== demo mode: physical simulator + JS port of the firmware classifier ===================== */
+const DCFG={D:0.40,BW:0.03,TAU:60,SPLIT:250,PGAP:80,MERGE:15,MINP:80,MING:12};
+const DL={lnK_h:Math.log(2.5),lnK_n:Math.log(18),lnT_h:Math.log(900),lnT_n:Math.log(2600),lnC_h:Math.log(.7),lnC_n:Math.log(.27),nH:0,nN:0};
+const resetDL=()=>Object.assign(DL,{lnK_h:Math.log(2.5),lnK_n:Math.log(18),lnT_h:Math.log(900),lnT_n:Math.log(2600),lnC_h:Math.log(.7),lnC_n:Math.log(.27),nH:0,nN:0});
 let demoId=0,demoTimer=null,demoHorn=null;
-function jsClassify(P,G){
-  const TP=P.reduce((s,i)=>s+i[1]-i[0],0),NG=G.length;
-  const w=G.map(i=>i[1]-i[0]).sort((a,b)=>a-b),wG=NG?(NG%2?w[(NG-1)/2]:(w[NG/2-1]+w[NG/2])/2):0;
-  let gap=0;if(NG>=3){let mg=0;for(let i=1;i<NG;i++)mg=Math.max(mg,G[i][0]-G[i-1][1]);gap=mg/(G[NG-1][1]-G[0][0])}
-  const e={TP,NG,wG,gap,K:0,dt:0,dtE:0,v:0,L:0,c:{K:0,N:0,gap:0,T:0,L:0},P,G};
-  if(!P.length&&NG){Object.assign(e,{cls:'SMALL_ANIMAL',dir:'UNKNOWN',p:.1});return e}
-  e.K=TP/Math.max(10,wG);e.dt=G[0][0]-P[0][0];e.dtE=P[P.length-1][1]-G[NG-1][1];
-  let vote=0;if(e.dt>60)vote+=2;if(e.dt<-60)vote-=2;if(e.dtE>60)vote-=1;if(e.dtE<-60)vote+=1;
-  e.dir=vote>0?'ENTERING':vote<0?'EXITING':'UNKNOWN';
-  const Kc=(DL.lnK_h+DL.lnK_n)/2,sK=Math.max(.35,(DL.lnK_n-DL.lnK_h)/4),Tc=(DL.lnT_h+DL.lnT_n)/2,sT=Math.max(.3,(DL.lnT_n-DL.lnT_h)/4);
-  e.c.K=2.2*Math.tanh((Math.log(Math.max(.2,e.K))-Kc)/sK);
-  e.c.N=NG>=4?1.4:NG===3?.7:NG===2?-1:-.3; e.c.gap=NG>=3?(gap>.35?.6:-.2):0;
-  e.c.T=.7*Math.tanh((Math.log(Math.max(20,TP))-Tc)/sT);
-  const z=e.c.K+e.c.N+e.c.gap+e.c.T;e.p=1/(1+Math.exp(-z));
-  e.cls=e.p>=.7?'NILGAI':e.p<=.3?'HUMAN':'UNKNOWN';e.lnK=Math.log(Math.max(.2,e.K));e.lnT=Math.log(TP);return e;
+const R=(a,b)=>a+Math.random()*(b-a);
+
+// --- bodies along the walking axis (metres, + = front). Profile beam at x=0 (outer), gait beam at x=D (inner)
+function bHuman(){const t=R(.12,.18),lw=R(.09,.15),st=R(0,.75),a=R(0,st);return{torso:[[-t,t]],legs:[[a-lw/2,a+lw/2],[a-st-lw/2,a-st+lw/2]]}}
+function bHumanTogether(){const t=R(.12,.18);return{torso:[[-t,t]],legs:[[-.08,.05],[-.05,.08]]}}
+function bNilgai(){const L=R(1.3,1.9),f=R(.1,.3),lw=R(.04,.08),fa=L/2-f,fs=R(0,.4),hb=-L/2+R(.15,.3),hs=R(0,.4);
+  return{torso:[[-L/2,L/2]],legs:[[fa,fa+lw],[fa-fs,fa-fs+lw],[hb,hb+lw],[hb+hs,hb+hs+lw]]}}
+function bNilgaiOverlap(){const b=bNilgai();b.legs[1]=[b.legs[0][0]+.02,b.legs[0][1]+.02];return b}
+const shiftB=(b,dx)=>({torso:b.torso.map(([a,c])=>[a+dx,c+dx]),legs:b.legs.map(([a,c])=>[a+dx,c+dx])});
+const groupB=(...bs)=>({torso:bs.flatMap(b=>b.torso),legs:bs.flatMap(b=>b.legs)});
+
+function simulate(body,path){           // path: [[seconds, m/s], ...]; the body faces its first motion
+  const face=path[0][1]>0?1:-1,DT=.001,D=DCFG.D,BW=DCFG.BW;
+  const span=Math.max(...[...body.torso,...body.legs].flat().map(Math.abs))+.1;
+  let X=face>0?-span:D+span,t=0;const st={p:false,g:false},iv={p:[],g:[]};
+  const occ=(segs,c)=>segs.some(([a,b])=>{const lo=face>0?X+a:X-b,hi=face>0?X+b:X-a;return lo-BW/2<=c&&c<=hi+BW/2});
+  for(const [dur,v] of path){for(let i=0;i<dur/DT;i++){X+=v*DT;t+=DT;
+    for(const [k,val] of [['p',occ(body.torso,0)],['g',occ(body.legs,D)]]){
+      if(val&&!st[k])iv[k].push([t,null]);if(!val&&st[k])iv[k][iv[k].length-1][1]=t;st[k]=val}}}
+  for(const k in iv)if(iv[k].length&&iv[k][iv[k].length-1][1]==null)iv[k][iv[k].length-1][1]=t;
+  const t0=Math.min(...[...iv.p,...iv.g].map(i=>i[0]),Infinity);
+  const ms=a=>a.map(([x,y])=>[Math.round((x-t0)*1000),Math.round((y-t0)*1000)]);
+  return{P:ms(iv.p),G:ms(iv.g)};
+}
+const cross=(b,v,enter)=>{const span=Math.max(...[...b.torso,...b.legs].flat().map(Math.abs))+.1,L=2*span+DCFG.D+.5;return simulate(b,[[L/v,enter?v:-v]])};
+
+const SCEN=[
+  ['Person walking',.22,()=>cross(bHuman(),R(.8,1.6),Math.random()<.55)],
+  ['Person, very slow',.07,()=>cross(bHuman(),R(.2,.35),true)],
+  ['Person, legs together',.06,()=>cross(bHumanTogether(),R(.6,1.2),true)],
+  ['Two people, single file',.07,()=>cross(groupB(bHuman(),shiftB(bHuman(),-R(1,1.8))),R(.9,1.4),Math.random()<.5)],
+  ['Two people, side by side',.05,()=>{const a=bHuman(),b=bHuman();return cross({torso:a.torso,legs:[...a.legs,...b.legs]},R(.9,1.3),true)}],
+  ['Person steps in, turns back',.05,()=>{const d=R(.55,.95);return simulate(bHuman(),[[d,1],[4.5,-1]])}],
+  ['NilGai walking',.22,()=>cross(bNilgai(),R(.6,1.6),Math.random()<.6)],
+  ['NilGai running',.06,()=>cross(bNilgai(),R(3,5),true)],
+  ['NilGai, legs overlapping',.06,()=>cross(bNilgaiOverlap(),R(.8,1.4),true)],
+  ['NilGai turns back at horn',.06,()=>simulate(bNilgai(),[[1.35,1],[3.4,-1.2]])],
+  ['Two NilGai',.04,()=>cross(groupB(bNilgai(),shiftB(bNilgai(),-R(2.2,3))),R(.9,1.5),true)],
+  ['Dog (below profile beam)',.04,()=>{const s=R(90,140);return{P:[],G:[0,1,2,3].map(i=>[Math.round(i*s),Math.round(i*s+R(35,60))])}}],
+];
+
+// --- classifier (mirror of the firmware)
+function cleanIv(a,minW){const m=[];for(const i of a.map(x=>[...x])){if(m.length&&i[0]-m[m.length-1][1]<DCFG.MERGE)m[m.length-1][1]=Math.max(m[m.length-1][1],i[1]);else m.push(i)}return m.filter(i=>i[1]-i[0]>=minW)}
+function splitBodies(P,G){
+  const B=[{p0:0,p1:1,gi:[],re:false}];
+  for(let i=1;i<P.length;i++){if(P[i][0]-P[i-1][1]>=DCFG.SPLIT&&B.length<4)B.push({p0:i,p1:i+1,gi:[],re:false});else B[B.length-1].p1=i+1}
+  const lag=B.length>1&&G.length?(G[0][0]+G[G.length-1][1])/2-(P[0][0]+P[P.length-1][1])/2:0;
+  G.forEach((g,gi)=>{const mid=(g[0]+g[1])/2-lag;let best=0,bd=1e12;B.forEach((b,k)=>{const bs=P[b.p0][0],be=P[b.p1-1][1];const d=mid<bs?bs-mid:mid>be?mid-be:0;if(d<bd){bd=d;best=k}});B[best].gi.push(gi)});
+  for(let k=0;k<B.length&&B.length>1;){if(!B[k].gi.length){const t=k>0?k-1:k+1;if(t<k)B[t].p1=B[k].p1;else B[t].p0=B[k].p0;B[t].re=true;B.splice(k,1)}else k++}
+  const lagOf=b=>b.gi.length?(G[b.gi[0]][0]+G[b.gi[b.gi.length-1]][1])/2-(P[b.p0][0]+P[b.p1-1][1])/2:0;
+  for(let k=0;k+1<B.length;){const m0=lagOf(B[k]),m1=lagOf(B[k+1]);
+    const outIn=m0>DCFG.TAU&&m1<-DCFG.TAU,inOut=m0<-DCFG.TAU&&m1>DCFG.TAU;
+    const p1s=P[B[k].p0][0],p1e=P[B[k].p1-1][1],p2s=P[B[k+1].p0][0];
+    const ok=(outIn||inOut)&&[...B[k].gi,...B[k+1].gi].every(g=>{const gs=G[g][0];return outIn?(gs>=p1s&&gs<p2s):!(gs>p1e&&gs<p2s)});
+    if(ok){B[k].p1=B[k+1].p1;B[k].re=true;B[k].gi.push(...B[k+1].gi);B.splice(k+1,1)}else k++}
+  return B;
+}
+function bodyFeat(P,G,b){
+  const f={nP:b.p1-b.p0,pS:P[b.p0][0],pE:P[b.p1-1][1],TP:0,pGaps:0,nG:b.gi.length,nEff:0,Gsum:0,K:0,C:0,gap:0,merged:false,even:false,re:b.re,wMax:0};
+  let pMax=0;for(let i=b.p0;i<b.p1;i++){const pw=Math.max(10,P[i][1]-P[i][0]);f.TP+=pw;pMax=Math.max(pMax,pw);if(i>b.p0&&P[i][0]-P[i-1][1]>=DCFG.PGAP&&!b.re)f.pGaps++}
+  if(!f.nG)return f;
+  const w=b.gi.map(i=>Math.max(10,G[i][1]-G[i][0])),wMin=Math.min(...w),wMax=Math.max(...w);f.wMax=wMax;f.Gsum=w.reduce((a,c)=>a+c,0);
+  f.even=w.length>=2&&wMax<1.6*wMin;f.wG=wMin;
+  w.forEach(x=>{const l=(w.length>=2&&x>=1.6*wMin)?2:1;if(l===2)f.merged=true;f.nEff+=l});
+  if(w.length===1&&w[0]>.45*f.TP)f.merged=true; f.nEff=Math.min(6,f.nEff);
+  f.gS=G[b.gi[0]][0];f.gE=G[b.gi[b.gi.length-1]][1];
+  if(!f.re&&f.nP>=2&&f.gS>=f.pS&&G[b.gi[b.gi.length-1]][0]<P[b.p1-1][0])f.re=true;
+  if(f.re){f.pGaps=0;f.TP=pMax;f.Gsum*=.5;f.nEff=Math.ceil(f.nEff/2);const m=[...w].sort((a,c)=>a-c),n=m.length;f.wG=n%2?m[(n-1)/2]:(m[n/2-1]+m[n/2])/2}
+  if(w.length>=3){let mg=0;for(let k=1;k<b.gi.length;k++)mg=Math.max(mg,G[b.gi[k]][0]-G[b.gi[k-1]][1]);f.gap=mg/(f.gE-f.gS)}
+  f.K=f.TP/Math.max(10,f.wG);f.C=f.Gsum/Math.max(10,f.TP);
+  f.dtS=f.gS-f.pS;f.dtE=f.pE-f.gE;f.dtM=Math.round((f.gS+f.gE)/2-(f.pS+f.pE)/2);return f;
+}
+function dirOf(f){
+  if(!(f.nP&&f.nG))return['UNKNOWN',false];const T=DCFG.TAU;
+  const sS=f.dtS>T?1:f.dtS<-T?-1:0,sE=f.dtE<-T?1:f.dtE>T?-1:0,sM=f.dtM>T?1:f.dtM<-T?-1:0;
+  if(sS&&sE&&sS!==sE&&!sM)return['TURNED_BACK',sS>0];
+  const v=2*sM+sS+sE;return[v>0?'ENTERING':v<0?'EXITING':'UNKNOWN',false];
+}
+function scoreBody(f){
+  const c={},w=f.nG>=2?1:.3;const Kc=(DL.lnK_h+DL.lnK_n)/2,sK=Math.max(.35,(DL.lnK_n-DL.lnK_h)/4);c.K=1.8*w*Math.tanh((Math.log(Math.max(.2,f.K))-Kc)/sK);
+  const Cc=(DL.lnC_h+DL.lnC_n)/2,sC=Math.max(.25,(DL.lnC_h-DL.lnC_n)/4);c.C=-1.8*w*Math.tanh((Math.log(Math.max(.02,f.C))-Cc)/sC);
+  c.N=f.nEff>=4?.9:f.nEff===3?.5:f.nEff===2?-.8:-.6;c.gap=f.nG>=3?(f.gap>.35?.6:-.2):0;c.pg=f.pGaps?-.6:0;
+  const Tc=(DL.lnT_h+DL.lnT_n)/2,sT=Math.max(.3,(DL.lnT_n-DL.lnT_h)/4);c.T=.7*Math.tanh((Math.log(Math.max(20,f.TP))-Tc)/sT);c.L=0;
+  const z=c.K+c.C+c.N+c.gap+c.pg+c.T,p=1/(1+Math.exp(-z));return{c,p,cls:p>=.7?'NILGAI':p<=.3?'HUMAN':'UNKNOWN'};
+}
+function learnJS(cls,f,a){if(!f||!f.K)return;const K=Math.log(f.K),T=Math.log(Math.max(20,f.TP)),C=Math.log(Math.max(.02,f.C));
+  if(cls==='HUMAN'){DL.lnK_h+=a*(K-DL.lnK_h);DL.lnT_h+=a*(T-DL.lnT_h);DL.lnC_h+=a*(C-DL.lnC_h);DL.nH++}
+  else{DL.lnK_n+=a*(K-DL.lnK_n);DL.lnT_n+=a*(T-DL.lnT_n);DL.lnC_n+=a*(C-DL.lnC_n);DL.nN++}
+  DL.lnK_n=Math.max(DL.lnK_n,DL.lnK_h+.6);DL.lnT_n=Math.max(DL.lnT_n,DL.lnT_h+.3);DL.lnC_n=Math.min(DL.lnC_n,DL.lnC_h-.5)}
+function jsClassify(P0,G0){
+  const P=cleanIv(P0,DCFG.MINP),G=cleanIv(G0,DCFG.MING);
+  const e={P,G,TP:0,NG:G.length,NE:0,K:0,C:0,gap:0,dt:0,dtE:0,dtM:0,v:0,L:0,c:{K:0,C:0,N:0,gap:0,pg:0,T:0,L:0},bodies:0,people:0,nilgai:0,note:'',p:.5,dir:'UNKNOWN'};
+  const notes=[];
+  if(!P.length&&!G.length)return Object.assign(e,{cls:'NOISE',p:0});
+  if(!P.length)return Object.assign(e,{cls:'SMALL_ANIMAL',p:.1,note:'only the low gait beam was broken (dog, goat, small animal)'});
+  if(!G.length)return Object.assign(e,{cls:'UNKNOWN',dir:'TURNED_BACK',fromOutside:true,TP:P[P.length-1][1]-P[0][0],note:'only the outer beam was broken: turned back before the inner beam (or gait beam misaligned)'});
+  const B=splitBodies(P,G);e.bodies=B.length;let best=-1,nil=0,ppl=0,unk=0,first=null,mixed=false,anyM=false,anyPG=false,pf=null,from=false,hb=0,legs=0,wide=false;
+  B.forEach((b,k)=>{const f=bodyFeat(P,G,b);const r=f.nG?scoreBody(f):{c:{},p:.5,cls:'UNKNOWN'};const [d,fo]=dirOf(f);
+    if(k===0)first=d;else if(d!==first)mixed=true;
+    if(r.cls==='NILGAI')nil++;else if(r.cls==='HUMAN'){hb++;legs+=f.nEff;if(f.C>1.05&&f.even)wide=true}else unk++;
+    anyM=anyM||f.merged;anyPG=anyPG||f.pGaps>0;
+    if(r.p>best){best=r.p;pf=f;e.p=r.p;e.c=Object.assign({K:0,C:0,N:0,gap:0,pg:0,T:0,L:0},r.c);e.dir=d;from=fo}
+    if(r.cls==='HUMAN'&&r.p<.1&&B.length===1&&!f.merged)learnJS('HUMAN',f,.05);if(r.cls==='NILGAI'&&r.p>.9)learnJS('NILGAI',f,.05)});
+  ppl=Math.max(hb,Math.floor(legs/2));e.nilgai=nil;e.people=ppl;e.cls=nil?'NILGAI':unk?'UNKNOWN':'HUMAN';if(mixed&&e.cls!=='NILGAI')e.dir='UNKNOWN';e.fromOutside=from;
+  Object.assign(e,{TP:Math.round(pf.TP),NG:pf.nG,NE:pf.nEff,K:+pf.K.toFixed(2),C:+pf.C.toFixed(2),gap:+pf.gap.toFixed(2),dt:pf.dtS||0,dtE:pf.dtE||0,dtM:pf.dtM||0});
+  if(B.length>1)notes.push(`${B.length} bodies one after another`);if(e.cls==='HUMAN'&&ppl>1)notes.push(`group of ${ppl} people`);if(nil>1)notes.push(`${nil} NilGai together`);
+  if(anyM)notes.push('legs overlapped in the gait beam (merged pulse counted as 2 legs)');if(anyPG&&B.length===1)notes.push('gap inside the profile: possibly two people close together');
+  if(mixed)notes.push('bodies moved in different directions');if(e.dir==='TURNED_BACK')notes.push(from?'approached from outside and turned back':'came from the field side and turned back');
+  if(pf.wMax>1500)notes.push('stood still with a leg in the gait beam');if(wide&&e.cls==='HUMAN'&&ppl<2)notes.push('wide leg signal: possibly 2 people side by side');
+  e.note=notes.join('; ');e._f=pf;return e;
 }
 function jsAct(e){
   const armed=!S.state||S.state.armed;e.status='INFO';e.action='Logged';
-  if(e.cls==='NILGAI'){if(e.dir==='ENTERING'){e.status='ALERT';e.action=armed?'Horn 5 s + strobe':'Disarmed - no horn';if(armed)demoHornOn(5000)}
-    else if(e.dir==='EXITING'){e.status='CLEARED';e.action='Animal left - horn stopped';demoHornOn(0)}else{e.status='CHECK';e.action='Horn 2 s (direction unclear)';if(armed)demoHornOn(2000)}}
-  else if(e.cls==='HUMAN'){e.status='SAFE';e.action='Person - alarm suppressed'}
-  else if(e.cls==='UNKNOWN'){e.status=e.dir==='ENTERING'?'WARNING':'CHECK';e.action='Uncertain - short chirp, please confirm'}
+  if(e.cls==='NILGAI'){
+    if(e.dir==='ENTERING'){e.status='ALERT';e.action=armed?'Horn 5 s + strobe':'Disarmed - no horn';if(armed)demoHornOn(5000)}
+    else if(e.dir==='EXITING'){e.status='CLEARED';e.action='Animal left - horn stopped';demoHornOn(0)}
+    else if(e.dir==='TURNED_BACK'&&e.fromOutside){e.status='DETERRED';e.action=armed?'Turned back at boundary - short horn':'Turned back at boundary';if(armed)demoHornOn(2000)}
+    else if(e.dir==='TURNED_BACK'){e.status='ALERT';e.action='Turned back into the field - horn 5 s';if(armed)demoHornOn(5000)}
+    else{e.status='CHECK';e.action='Horn 2 s (direction unclear)';if(armed)demoHornOn(2000)}}
+  else if(e.cls==='HUMAN'){e.status='SAFE';e.action=e.people>1?'People - alarm suppressed':'Person - alarm suppressed'}
+  else if(e.cls==='UNKNOWN'&&e.dir==='TURNED_BACK'){e.status='CHECK';e.action='Stepped into the outer beam and went back - no horn'}
+  else if(e.cls==='UNKNOWN'){if(e.p>=.5&&e.dir==='ENTERING'){e.status='WARNING';e.action='Probable NilGai - horn 2 s, please confirm';if(armed)demoHornOn(2000)}
+    else{e.status=e.dir==='ENTERING'?'WARNING':'CHECK';e.action='Uncertain - short chirp, please confirm'}}
   else if(e.cls==='SMALL_ANIMAL'){e.status='LOW';e.action='Small animal (gait only) - no horn'}
 }
 function demoHornOn(ms){clearTimeout(demoHorn);setLive({...S.live,horn:ms?1:0});if(ms)demoHorn=setTimeout(()=>setLive({...S.live,horn:0}),ms)}
-const R=(a,b)=>a+Math.random()*(b-a);
-function makeScenario(){
-  const r=Math.random();let kind,exit=Math.random()<.4,P=[],G=[];
-  if(r<.42){kind='human';const slow=Math.random()<.3?R(4,9):1;const tp=R(280,520)*slow,lw=R(100,160)*slow;const g0=R(60,140)*slow;
-    P=[[0,tp]];G=[[g0,g0+lw],[g0+lw+R(60,140)*slow,g0+2*lw+R(60,140)*slow]];}
-  else if(r<.85){kind='nilgai';const slow=Math.random()<.3?R(2,3):R(.6,1.1);const tp=R(1000,1500)*slow,lw=R(55,95)*slow;
-    P=[[0,tp]];const f=[.15,.27,.72,.84];G=f.map(k=>{const s=k*tp+R(-20,20);return [s,s+lw]});}
-  else {kind='small';P=[];G=[0,1,2,3].map(i=>{const s=i*R(90,140);return [s,s+R(35,60)]})}
-  if(exit&&P.length){const end=Math.max(...P.map(i=>i[1]),...G.map(i=>i[1]));const m=iv=>iv.map(([a,b])=>[end-b,end-a]).reverse();P=m(P);G=m(G)}
-  return {P:P.map(i=>i.map(Math.round)),G:G.map(i=>i.map(Math.round))};
-}
+function pickScenario(){let r=Math.random(),acc=0;for(const sc of SCEN){acc+=sc[1];if(r<acc)return sc}return SCEN[0]}
 function runScenario(){
-  const {P,G}=makeScenario();const edges=[];
-  P.forEach(([a,b])=>{edges.push([a,'p',1],[b,'p',0])});G.forEach(([a,b])=>{edges.push([a,'g',1],[b,'g',0])});
+  const sc=pickScenario();const {P,G}=sc[2]();const edges=[];
+  P.forEach(([a,b])=>edges.push([a,'p',1],[b,'p',0]));G.forEach(([a,b])=>edges.push([a,'g',1],[b,'g',0]));
+  edges.sort((x,y)=>x[0]-y[0]);
   edges.forEach(([t,k,v])=>setTimeout(()=>{if(!S.demo)return;setLive({...S.live,[k]:v})},t));
-  const end=Math.max(...edges.map(e=>e[0]));
-  setTimeout(()=>{if(!S.demo)return;const e=jsClassify(P,G);jsAct(e);e.id=++demoId;e.epoch=0;
-    if(e.cls==='HUMAN'&&e.p<.1)learnJS('HUMAN',e,.05);if(e.cls==='NILGAI'&&e.p>.9)learnJS('NILGAI',e,.05);onEvent(e);pushDemoState()},end+900);
+  const end=edges.length?edges[edges.length-1][0]:0;
+  setTimeout(()=>{if(!S.demo)return;const e=jsClassify(P,G);if(e.cls==='NOISE')return;jsAct(e);e.id=++demoId;e.epoch=0;e.scenario=sc[0];onEvent(e);pushDemoState();toast('Demo scenario: '+sc[0])},end+900);
   demoTimer=setTimeout(runScenario,end+R(5000,8000));
 }
-function learnJS(cls,e,a){if(!e.lnK)return;if(cls==='HUMAN'){DL.lnK_h+=a*(e.lnK-DL.lnK_h);DL.lnT_h+=a*(e.lnT-DL.lnT_h);DL.nH++}else{DL.lnK_n+=a*(e.lnK-DL.lnK_n);DL.lnT_n+=a*(e.lnT-DL.lnT_n);DL.nN++}
-  DL.lnK_n=Math.max(DL.lnK_n,DL.lnK_h+.6);DL.lnT_n=Math.max(DL.lnT_n,DL.lnT_h+.3)}
-function pushDemoState(){S.state=Object.assign(S.state||{armed:1},{ip:'demo',rssi:-48,up:performance.now(),lvl:'HIGH',offset:0,heap:31000,last:S.events[0]?`${S.events[0].cls} ${S.events[0].dir}`:'—'});S.lastState=Date.now();
-  renderLearn({Kh:Math.exp(DL.lnK_h),Kn:Math.exp(DL.lnK_n),Kc:Math.exp((DL.lnK_h+DL.lnK_n)/2),Th:Math.exp(DL.lnT_h),Tn:Math.exp(DL.lnT_n),hold:0,nH:DL.nH,nN:DL.nN},90);renderDev()}
+function pushDemoState(){S.state=Object.assign(S.state||{armed:1},{ip:'demo',rssi:-48,up:performance.now(),lvl:'HIGH',offset:DCFG.D,heap:31000,last:S.events[0]?`${S.events[0].cls} ${S.events[0].dir}`:'—'});S.lastState=Date.now();
+  renderLearn({Ch:Math.exp(DL.lnC_h),Cn:Math.exp(DL.lnC_n),Kh:Math.exp(DL.lnK_h),Kn:Math.exp(DL.lnK_n),Kc:Math.exp((DL.lnK_h+DL.lnK_n)/2),Th:Math.exp(DL.lnT_h),Tn:Math.exp(DL.lnT_n),hold:0,nH:DL.nH,nN:DL.nN},90);renderDev()}
 function demoCmd(c){
   if(c==='horn')demoHornOn(2000);else if(c==='stop')demoHornOn(0);else if(c==='arm'||c==='disarm'){S.state.armed=c==='arm'?1:0;if(c==='disarm')demoHornOn(0)}
-  else if(c==='reset_learn'){Object.assign(DL,{lnK_h:Math.log(2.5),lnK_n:Math.log(18),lnT_h:Math.log(900),lnT_n:Math.log(2600),nH:0,nN:0})}
-  else if(c.startsWith('label:')){const [,id,k]=c.split(':');const e=S.events.find(x=>String(x.id)===id);if(e)learnJS(k==='nilgai'?'NILGAI':'HUMAN',e,.25)}
+  else if(c==='reset_learn')resetDL();
+  else if(c.startsWith('label:')){const [,id,k]=c.split(':');const e=S.events.find(x=>String(x.id)===id);if(e&&e._f)learnJS(k==='nilgai'?'NILGAI':'HUMAN',e._f,.25)}
   pushDemoState();toast('Demo: '+c);
 }
 function setDemo(on){
